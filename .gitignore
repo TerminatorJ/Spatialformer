@@ -1,0 +1,15 @@
+./cache/*
+
+./data/*
+
+./david_data/*
+
+./figure/*
+
+./output/*
+
+./processed/*
+
+./scripts/*.pkl
+
+

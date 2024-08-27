@@ -16,21 +16,26 @@ from Spaformer import Spaformer
 import pytorch_lightning as pl
 import torch
 from pytorch_lightning.loggers import WandbLogger
+from pytorch_lightning.loggers import CSVLogger
 from pytorch_lightning.callbacks import ModelCheckpoint, LearningRateMonitor
 import json
 import numpy as np
 import logging
 from datasets import load_from_disk
-from datasets import concatenate_datasets, DatasetDict
+from datasets import DatasetDict, load_dataset, concatenate_datasets
 from torch.utils.data import ConcatDataset
 from h5toloader import get_dataset,create_data_loaders
-os.environ["WANDB_CACHE_DIR"] = "/scratch/project_465001027/spatialformer/cache"
-os.environ["AMD_SERIALIZE_KERNEL"] = "3"
-torch.set_float32_matmul_precision("medium")
-data_path = "/scratch/project_465001027/spatialformer/david_data"
-data_name = [file.split("/")[-1] for file in os.listdir(data_path) if "relabel" in file]
-adata_paths = [os.path.join(data_path, name, "processed", name + "." + "h5ad") for name in data_name]
-other_array_path = ["/scratch/project_465001027/spatialformer/data/processed/Xenium_Preview_Human_Non_diseased_Lung_With_Add_on_FFPE_outs_arrow"]
+os.environ["WANDB_CACHE_DIR"] = "/home/sxr280/Spatialformer/cache"
+os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
+os.environ['TORCH_USE_CUDA_DSA'] = '1'
+os.environ["WANDB_DIR"] = "/home/sxr280/Spatialformer/cache"
+os.environ["WANDB_CONFIG_DIR"] = "/home/sxr280/Spatialformer/cache"
+os.environ["WANDB_CACHE_DIR"] = "/home/sxr280/Spatialformer/cache"
+hf_cache = "/tmp/erda/Spatialformer"
+data_path = "/home/sxr280/Spatialformer/wandb"
+# data_name = [file.split("/")[-1] for file in os.listdir(data_path) if "relabel" in file]
+# adata_paths = [os.path.join(data_path, name, "processed", name + "." + "h5ad") for name in data_name]
+# other_array_path = ["/scratch/project_465001027/spatialformer/data/processed/Xenium_Preview_Human_Non_diseased_Lung_With_Add_on_FFPE_outs_arrow"]
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 def manual_train_fm(config=None):
@@ -52,7 +57,11 @@ def manual_train_fm(config=None):
                         learnable_pe=config['learnable_pe'],
                         specie=config['specie'],
                         assay=config['assay'],
-                        modality=config['modality'])
+                        modality=config['modality'],
+                        bpp=config['bpp'],
+                        bpp_scale = config['bpp_scale'],
+                        ag_loss = config['ag_loss'],
+                        outer_config = config)
                       
 
     return model
@@ -61,7 +70,7 @@ class MyTrainer:
     def __init__(self, config):
         self.config = config
         self.plmodel = manual_train_fm(config=config)
-        self.output_dir = "/scratch/project_465001027/spatialformer/output"
+        self.output_dir = "/home/sxr280/Spatialformer/output"
         
         self.gpus = torch.cuda.device_count()
         self.trainer = None
@@ -83,21 +92,22 @@ class MyTrainer:
 
         return callbacks
     def set_trainer(self):
-        self.logger = WandbLogger(project = "Spaformer", 
-                                  name = "pilot", 
-                                  log_model = "all", 
-                                  save_dir = self.output_dir)
+        # self.logger = WandbLogger(project = "Spaformer", 
+        #                           name = "pilot", 
+        #                           log_model = "all", 
+        #                           save_dir = self.output_dir)
+        self.logger = CSVLogger("/home/sxr280/Spatialformer/output", name="my_experiment")
         
         self.trainer = pl.Trainer(
             accelerator="auto",
             devices=self.gpus,
-            max_steps=60000,
+            max_steps=self.config["total_step"],
+            val_check_interval = 0.1,
             default_root_dir=self.output_dir,
             callbacks=self.make_callback(),
-            log_every_n_steps=1000,
-            check_val_every_n_epoch=50,
+            log_every_n_steps=50,
             logger=self.logger,
-            precision='32',
+            precision='bf16',
             strategy = self.config['strategy'],
             num_nodes = 1,
             gradient_clip_val = 1,
@@ -115,14 +125,15 @@ class MyTrainer:
             devices=self.gpus,
             strategy = self.config['strategy'],
             num_nodes = 1,
+            val_check_interval = 0.1,
             gradient_clip_val = 1,
             logger=self.logger,
             default_root_dir=self.output_dir,
-            log_every_n_steps=1000,
-            check_val_every_n_epoch=50,
+            log_every_n_steps=50,
+            check_val_every_n_epoch=1,
             precision='bf16',
             callbacks=self.make_callback(),
-            max_steps=60000, 
+            max_steps=self.config["total_step"], 
             resume_from_checkpoint=ckp,
             accumulate_grad_batches = self.config['accumulate_grad_batches'])
         self.trainer.fit(self.plmodel, train_loader, val_loader)
@@ -145,17 +156,17 @@ def mean_length_of_full_tokens(dataset_split):
     return np.mean(lengths)
 
 
-def get_all_adata(adata_paths):
+def get_all_dataset(file_names):
     train_datasets = []
     test_datasets = []
     val_datasets = []
     all_mean = []
-    for i, path in enumerate(adata_paths + other_array_path):
+    for i, name in enumerate(file_names):
+        # TerminatorJ/relabel_output-XETG00048__0003400__VUILD91MF__20230313__191400
+        remote_name = "TerminatorJ/"+name
         # import pdb; pdb.set_trace()
-        if i < len(adata_paths):
-            sta_datasets = get_dataset(path)
-        else:
-            sta_datasets = load_from_disk(path)
+        sta_datasets = load_dataset(remote_name, cache_dir = hf_cache, num_proc = 1)
+        # sta_datasets = load_from_disk(name)
         train_datasets.append(sta_datasets["train"])
         test_datasets.append(sta_datasets["test"])
         val_datasets.append(sta_datasets["validation"])
@@ -165,7 +176,7 @@ def get_all_adata(adata_paths):
         mean_length_validation = mean_length_of_full_tokens(sta_datasets['validation'])
         mean_length = np.mean([mean_length_train, mean_length_test, mean_length_validation])
         all_mean.append(mean_length)
-        print("mean length of %s is " % path.split("/")[-1], mean_length)
+        print("mean length of %s is " % name.split("/")[-1], mean_length)
 
 
 
@@ -177,34 +188,67 @@ def get_all_adata(adata_paths):
 if __name__ == "__main__":
     # import pdb; pdb.set_trace()
     
-    with open(os.path.join("/scratch/project_465001027/spatialformer/config/_config_train.json"), 'r') as json_file:
+    with open(os.path.join("/home/sxr280/Spatialformer/config/_config_train.json"), 'r') as json_file:
         config = json.load(json_file)
 
-    # data_path = "/scratch/project_465001027/spatialformer/data/processed/Xenium_Preview_Human_Non_diseased_Lung_With_Add_on_FFPE_outs/Xenium_Preview_Human_Non_diseased_Lung_With_Add_on_FFPE_outs.h5ad"
-    # data_path = "/scratch/project_465001027/spatialformer/david_data/relabel_output-XETG00048__0003392__THD0008__20230313__191400/processed/relabel_output-XETG00048__0003392__THD0008__20230313__191400.h5ad"
-    # import pdb; pdb.set_trace()
     # tokenized_datasets = get_dataset(data_path)
-    train_datasets, test_datasets, val_datasets = get_all_adata(adata_paths)
-    
-    #concating all the dataset
-    combined_dataset = DatasetDict({
-    'train': concatenate_datasets(train_datasets),
-    'test': concatenate_datasets(test_datasets),
-    'validation': concatenate_datasets(val_datasets)
-    })
+    file_names = ["relabel_output-XETG00048__0003392__THD0008__20230313__191400",
+                  "relabel_output-XETG00048__0003400__THD0011__20230313__191400",
+                  "relabel_output-XETG00048__0003400__TILD117LF__20230313__191400",
+                  "relabel_output-XETG00048__0003400__VUILD91LF__20230313__191400",
+                  "relabel_output-XETG00048__0003400__VUILD78LF__20230313__191400",
+                  "relabel_output-XETG00048__0003789__VUHD095__20230308__003731",
+                  "relabel_output-XETG00048__0003789__VUILD104LF__20230308__003731",
+                  "relabel_output-XETG00048__0003392__VUILD115__20230313__191400",
+                  "relabel_output-XETG00048__0003817__VUILD107MF__20230308__003731",
+                  "relabel_output-XETG00048__0003392__VUILD106__20230313__191400",
+                  "relabel_output-XETG00048__0003789__VUHD069__20230308__003731",
+                  "relabel_output-XETG00048__0003817__VUILD102LF__20230308__003731",
+                  "relabel_output-XETG00048__0003789__VUILD48MF__20230308__003731",
+                  "relabel_output-XETG00048__0003817__VUILD96LF__20230308__003730",
+                  "relabel_output-XETG00048__0003400__VUILD78MF__20230313__191400",
+                  "relabel_output-XETG00048__0003400__TILD175__20230313__191400",
+                  "relabel_output-XETG00048__0003817__VUILD102MF__20230308__003730",
+                  "relabel_output-XETG00048__0003400__TILD117MF__20230313__191400",
+                  "relabel_output-XETG00048__0003817__VUILD96MF__20230308__003730",
+                  "relabel_output-XETG00048__0003817__VUHD116A__20230308__003730",
+                  "relabel_output-XETG00048__0003789__VUILD105MF__20230308__003731",
+                  "relabel_output-XETG00048__0003817__VUHD116B__20230308__003731",
+                  "relabel_output-XETG00048__0003392__VUILD110__20230313__191400",
+                  "relabel_output-XETG00048__0003789__VUHD113__20230308__003731",
+                  "relabel_output-XETG00048__0003400__VUILD91MF__20230313__191400"]
 
 
+    try:
+        print("load data from disk")
+        # import pdb; pdb.set_trace()
+        combined_dataset = load_from_disk(os.path.join(hf_cache,"xenium_25_lung_dataset_update3"))
+        # combined_dataset = load_dataset("TerminatorJ/xenium_25_lung_dataset_update3", cache_dir = hf_cache, num_proc = 1)
+    except:
+        train_datasets, test_datasets, val_datasets = get_all_dataset(file_names)
+        # import pdb; pdb.set_trace()
+        #concating all the dataset
+        combined_dataset = DatasetDict({
+        'train': concatenate_datasets(train_datasets),
+        'test': concatenate_datasets(test_datasets),
+        'validation': concatenate_datasets(val_datasets)
+        })
+
+        #push the integrated dataset to the hub
+        combined_dataset.push_to_hub("xenium_25_lung_dataset")
+
+    # import pdb; pdb.set_trace()
 
     
     # import pdb; pdb.set_trace()
     # train_dataloader, val_dataloader, test_dataloader = create_data_loaders(tokenized_datasets, batch_size=config["batch_size"], context_length=config["context_length"])
-    train_dataloader, val_dataloader = create_data_loaders(combined_dataset, batch_size=config["batch_size"], context_length=config["context_length"])
+    train_dataloader, val_dataloader = create_data_loaders(combined_dataset, batch_size=config["batch_size"], context_length=config["context_length"], special_token_num = 0, directionality = config["directionality"])
     # for batch in train_dataloader:
     #     pass
     Trainer = MyTrainer(config = config)
 
     Trainer.train(train_dataloader, val_dataloader)
-    # Trainer.resume_train("/scratch/project_465001027/spatialformer/output/checkpoints/step=0000002-val_loss=0.0000.ckpt", train_dataloader, val_dataloader)
+    # Trainer.resume_train("/home/sxr280/Spatialformer/output/checkpoints/step=0005000-train_loss=0.0065-val_loss=0.0051.ckpt", train_dataloader, val_dataloader)
     # print("skip the training, only getting the test performance###")
     # test 
     # Trainer.test(test_dataloader)

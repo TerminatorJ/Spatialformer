@@ -26,6 +26,7 @@ from utils import unique_list_mapping_to_one_hot, one_graph_splits_nx
 import seaborn as sns
 import matplotlib.pyplot as plt
 from collections import Counter
+from scipy.spatial.distance import cdist
 
 
 class KNN_Radius_Graph(object):
@@ -81,6 +82,86 @@ class KNN_Radius_Graph(object):
             gene_list: the list of genes in the dataset
         """
         return sorted(self.dataset['gene'].unique().tolist())
+    
+
+    def get_gene_dis_matrix(self):
+        '''
+        Group transcripts by gene and compute their centroids
+        
+        '''
+        selected_data = self.selected_cell_data
+        sorted_data = selected_data.sort_values(by='gene')
+        grouped = sorted_data.groupby('gene')
+        gene_centroids = pd.DataFrame({
+                        'feature_name': [],
+                        'x': [],
+                        'y': []
+                    })
+        for gene, group in grouped:
+            centroid_x = group['x'].mean()
+            centroid_y = group['y'].mean()
+            centroid_z = group['z'].mean()
+            gene_centroids = pd.concat(
+                [gene_centroids, pd.DataFrame({'gene': [gene], 'x': [centroid_x], 'y': [centroid_y], 'z': [centroid_z]})]
+            )
+        # Convert centroids to numpy array
+        centroid_coords = np.array(gene_centroids[['x', 'y', 'z']])
+
+        #insert the gene in the reference that not exist in the current dataframe
+        unique_genes = np.unique(list(sorted(self.ref_gene)))
+        gene_rank = np.unique(sorted_data["gene"])
+        gene_rank_filled = gene_rank
+        empty_dis = np.array([0, 0, 0])
+        for i, gene in enumerate(unique_genes):
+            if gene not in gene_rank:
+                # import pdb; pdb.set_trace()
+                # gene_rank_filled[i] = "blank"
+                gene_rank_filled = np.insert(gene_rank_filled, i, "blank")
+                centroid_coords = np.insert(centroid_coords, i, empty_dis,axis = 0)
+        
+
+        #test whether the insert position is valid
+        assert np.all([unique_genes[idx] == gene  for idx, gene in enumerate(gene_rank_filled) if gene != "blank"]), "There are some mistake in the insertion process"
+        # Compute the Euclidean distance matrix for centroids
+        distance_matrix = cdist(centroid_coords, centroid_coords, metric='euclidean')
+        # Identify indices for zero centroids
+        zero_indices = np.where(np.all(centroid_coords == [0, 0, 0], axis=1))[0]
+        # Zero out the corresponding rows and columns
+        distance_matrix[zero_indices, :] = 0
+        distance_matrix[:, zero_indices] = 0
+        # import pdb; pdb.set_trace()
+        return distance_matrix
+    
+
+    def get_nucleus_info(self):
+        '''
+        getting the genes localization of the percentage transcripts (%) that belong to the nucleus
+        The genes are ranked by the reference gene set.
+        '''
+        selected_data = self.selected_cell_data
+        sorted_data = selected_data.sort_values(by='gene')
+        # selected_data["overlaps_nucleus"]
+        grouped = sorted_data.groupby('gene')
+        pct_nucleus = []
+        total_num = []
+        unique_genes = np.unique(list(sorted(self.ref_gene)))
+        for gene in unique_genes:
+            # import pdb; pdb.set_trace()
+            if gene in np.unique(sorted_data["gene"]):
+                # import pdb; pdb.set_trace()
+                group = grouped.get_group(gene)
+                total_num.append(len(group['overlaps_nucleus']))
+                pct_nucleus.append(np.sum(group['overlaps_nucleus'].values == 1)/len(group['overlaps_nucleus']))
+            else:
+                total_num.append(0)
+                pct_nucleus.append(-1.0)
+        # import pdb; pdb.set_trace()
+        return np.array(pct_nucleus), np.array(total_num)
+
+
+
+        
+        
         
     def get_gene_matrix(self, pair_threshold, self_threshold, plot) -> np.array:
         """
@@ -95,6 +176,8 @@ class KNN_Radius_Graph(object):
         
         #getting all the vertexes
         selected_data = self.selected_cell_data
+        
+        # import pdb; pdb.set_trace()
         if self.is_3D is True:
             r_c = np.array(selected_data[['x', 'y', 'z']])
 
@@ -114,8 +197,6 @@ class KNN_Radius_Graph(object):
                     G.add_edge(i, j)
         #generate the symmetric matrix
         adj_matrix = nx.to_numpy_array(G, nodelist=range(len(r_c)))
-        # rows, cols = np.where(adj_matrix == 1)
-        # edge_index = np.array([rows, cols])
         
         #using louvain method to find the clusters
         partition = community_louvain.best_partition(G)
@@ -198,6 +279,7 @@ class KNN_Radius_Graph(object):
             plt.savefig(f"/scratch/project_465001027/spatialformer/figure/{self.cell_ID}_gene_combined_heatmap.png", dpi=300)
 
         #TODO, insert the genes within the reference list
+        # import pdb; pdb.set_trace()
         
         return gene_binary_matrix, gene_freq_matrix, adj_matrix
    

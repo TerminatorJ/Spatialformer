@@ -70,7 +70,9 @@ class MaskedConv1d(nn.Module):
         # print("mask conv:", x.shape)
         if mask is not None:
             # print("mask:", mask.shape)
-            x = x.masked_fill(~mask[:,None,:], torch.tensor(0., dtype=x.dtype, device=x.device))#torch.where(mask[:,None,:], x, torch.tensor(0., dtype=x.dtype, device=x.device))
+            #fill the mask to only compute the valid fields
+            x = x.masked_fill(~mask[:,None,:], torch.tensor(0., dtype=x.dtype, device=x.device))#
+        #keep the same sequence length after convolution
         x = self.conv(x)
         return x
 

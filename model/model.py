@@ -35,6 +35,7 @@ class SqueezeformerBlock(nn.Module):
         self.conv_blocks = nn.ModuleList([Conv1DBlock(dim,kernel_size,groups,1,1,conv_dropout,mlp_dropout,drop_path,conv_expand,activation,prenorm) for _ in range(num_conv_block)])
         self.attn_blocks = nn.ModuleList([AltBlock(dim,num_heads,attn_expand,attn_dropout,mlp_dropout,drop_path,activation,prenorm) for _ in range(num_attn_block)])
 
+
     def forward(self, inputs, mask=None, alibi_bias=None):
         x = inputs #(B,N,C)
         # import pdb; pdb.set_trace()
@@ -43,6 +44,11 @@ class SqueezeformerBlock(nn.Module):
         for block in self.attn_blocks:
             x = block(x, mask=mask, alibi_bias=alibi_bias)
         return x
+    def get_attn(self):
+        for block in self.attn_blocks:
+            # import pdb; pdb.set_trace()
+            attns = block.self_attn.attn_score
+        return attns
 
 class MaskedRNN(nn.Module):
     def __init__(self, rnn_module, **kwargs):
@@ -96,9 +102,14 @@ class SpaEncoder(nn.Module):
                  drop_path=0.1,
                  activation='swish',
                  prenorm=False,
+                 bpp_size=None,
+                 bpp=True,
+                 bpp_scale=None,
                  **kwargs):
         super().__init__(**kwargs)
         self.dim = dim
+        self.bpp = bpp
+        self.bpp_scale = bpp_scale
         self.prenorm = prenorm
         self.emb_proj = nn.Linear(5*dim, dim)
         self.emb_dropout = nn.Dropout(0.1)
@@ -107,41 +118,55 @@ class SpaEncoder(nn.Module):
         self.bpp_feature_proj = nn.Linear(3, dim)
         self.bpp_convnet = BPPConvnet(num_heads)
         self.num_heads = num_heads
+        if bpp:
+            self.bpp_weight = nn.Parameter(torch.ones(bpp_size))
+            # self.contrl_weight = nn.Parameter(torch.ones(bpp_size))
+        else:
+            self.bpp_weight = None
+            # self.contrl_weight = None
         self.layers = nn.ModuleList(
                     [SqueezeformerBlock(dim,kernel_size,groups,num_heads,conv_expand,attn_expand,num_conv_block,num_attn_block,conv_dropout,attn_dropout,mlp_dropout,drop_path,activation,prenorm) for _ in range(num_layers)])
     
     def forward(self, seq_embed, bpp, mask=None):
-        # x1 = self.embedding(inp['seq'])
-        # x2 = self.mfe_embedding(inp['mfe'])
-        # x3 = self.bpp_feature_proj(inp['bpp_features'])
-        # x4 = self.looptype_embedding(inp['loop_type'])
-        # x5 = self.capr_looptype_embedding(inp['capr_loop_type'])
-
-        # x = torch.cat([x1, x2, x3, x4, x5], dim=-1)
         # import pdb; pdb.set_trace()
         x = seq_embed
         x = self.emb_dropout(x)
-        # x = self.emb_proj(x)
-        # x = self.emb_dropout(x)
         # import pdb; pdb.set_trace()
         x = self.norm(x)
         # import pdb; pdb.set_trace()
-        bpp = self.bpp_convnet(bpp.unsqueeze(1))
-        # import pdb; pdb.set_trace()
-        alibi_bias = get_alibi(x.size(1), self.num_heads).to(dtype=x.dtype, device=x.device).repeat(x.size(0), 1, 1, 1)
-        # import pdb; pdb.set_trace()
-        alibi_bias = alibi_bias + bpp
-        # import pdb; pdb.set_trace()
+        # Apply the learned weight to the bpp matrix
+        if self.bpp:
+            bpp = bpp * self.bpp_weight * self.bpp_scale
+            # bpp = bpp * self.bpp_weight
+            # import pdb; pdb.set_trace()
+            bpp = self.bpp_convnet(bpp.unsqueeze(1))
+
+            # bpp = bpp * self.contrl_weight
+            # import pdb; pdb.set_trace()
+            alibi_bias = get_alibi(x.size(1), self.num_heads).to(dtype=x.dtype, device=x.device).repeat(x.size(0), 1, 1, 1)
+            # import pdb; pdb.set_trace()
+            alibi_bias = alibi_bias + bpp
+            # bias = bpp 
+        else:
+            # bias = None
+            alibi_bias = get_alibi(x.size(1), self.num_heads).to(dtype=x.dtype, device=x.device).repeat(x.size(0), 1, 1, 1)
 
         outputs = []
+        attn_scores = []
         for layer in self.layers:
             x = layer(x, mask=mask, alibi_bias=alibi_bias)
+            # x = layer(x, mask=mask, alibi_bias=bias)
+            # import pdb; pdb.set_trace()
+            attn_score = layer.get_attn()
             if mask is not None and hasattr(layer, 'compute_mask'):
                 mask = layer.compute_mask(x, mask)
 
             outputs.append(x)
-        # import pdb; pdb.set_trace()
-        return outputs
+            attn_scores.append(attn_score)
+        
+        return outputs, attn_scores
+
+
         
 class RNARegModel(nn.Module):
     def __init__(self, dim=192, num_layers=12, num_heads=4,

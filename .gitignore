@@ -1,15 +1,23 @@
-./cache/*
+/cache/*
 
-./data/*
+/data/*
 
-./david_data/*
+/david_data/*
 
-./figure/*
+/david_data/*
 
-./output/*
+/downstream/*
 
-./processed/*
+/Figures/*
 
-./scripts/*.pkl
+/output/*
+
+/processed/*
+
+/scripts/*.pkl
+/scripts/*.log
+
+/reference_gene/*
+
 
 

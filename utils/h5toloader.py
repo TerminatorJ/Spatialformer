@@ -19,6 +19,7 @@ import json
 import argparse
 from datasets import load_from_disk
 from torch.utils.data import ConcatDataset
+from utils import uniform_quantile_global, binning
 current_file_path = Path(__file__).resolve()
 p_path = current_file_path.parents[1]
 data_dir = os.path.join(p_path, "david_data")#
@@ -145,8 +146,8 @@ class GeneExpressionDataset:
                 normalized_expression[i, :] *= target_sum / cell_sum
         # import pdb; pdb.set_trace()
         self.adata.X = normalized_expression
-        # Normalize by gene technique median
-        gene_technique_mean = [self.adata.X[:, i][self.adata.X[:, i].nonzero()[0]].mean() for i in range(self.adata.shape[1])]
+        # Normalize by gene technique mean
+        gene_technique_mean = [self.adata.X[:, i][self.adata.X[:, i].nonzero()[0]].median() for i in range(self.adata.shape[1])]
         self.adata.X = self.adata.X / np.array(gene_technique_mean)
 
         cell_ids = self.adata.obs.index
@@ -185,51 +186,160 @@ class GeneExpressionDataset:
             tokenized_datasets.push_to_hub(f"{self.data_name}")
         return tokenized_datasets
 
-        
+def get_rank_exp(raw_genes, raw_exps, ranked_genes):
+    ranked_exp = []
 
-def create_data_loaders(tokenized_datasets, batch_size=1, context_length=1500):
+    # Iterate over each gene list and its corresponding index in ranked_genes
+    for i, gene_list in enumerate(ranked_genes):
+        exp_values = []
+        for gene in gene_list:
+            # Attempt to find the index of the gene in the raw_genes
+            if gene in raw_genes[i]:
+                index = raw_genes[i].index(gene)
+                exp_value = raw_exps[i][0][index]
+                exp_values.append(exp_value)
+            else:
+                # Handle the case where the gene is not found
+                print(f"Gene {gene} not found in raw_genes[{i}]")
+                # Optionally append a placeholder value, e.g., torch.tensor(float('nan'))
+        
+        ranked_exp.append(torch.tensor(exp_values))
+    return ranked_exp
+
+
+def create_data_loaders(tokenized_datasets, batch_size=1, context_length=1500, special_token_num = 4, split_num = 2, directionality = True, n_bins = 51):
+    '''
+    
+    directionality: whether the pair-wise matrix should have the directionality. On the other word, the whether the token that is defined as co-localized
+                    can have attention with all the other tokens. If so, this could be a fully attention matrix. If not, this should be a sparse binary matrix.
+                    default: True
+
+    '''
     # Create a Data Collator for batching
     class CustomDataCollator(object):
         def __init__(self, context_length, padding_idx=0):
             self.context_length = context_length
             self.padding_idx = padding_idx
+            self.special_token_num = special_token_num
+            # self.selection = selection
 
         def __call__(self, batch):
             # Extract sequences and matrices
             # import pdb; pdb.set_trace()
+            # if self.selection != None:
+            #     batch = [torch.tensor(item['Gene_Gene_Matrix']) for item in batch if item["Full_Tokens"]]
+            
             gg_mtx = [torch.tensor(item['Gene_Gene_Matrix']) for item in batch]
             Full_Tokens = [torch.tensor(item['Full_Tokens']) for item in batch]
+            raw_exp = [torch.tensor(item['Expression'][0]) for item in batch]
+            annotation = [item['Annotations'] for item in batch]
+            # Norm_Exp = [torch.tensor(item['Normalized_Exp']) for item in batch]
+            raw_genes = [item["Gene"] for item in batch]
+            raw_exps = [item["Expression"] for item in batch]
+            ranked_genes = [item["Ranked_Gene_Names"] for item in batch]
+            nuc_pct = [item["pct_nucleus"] for item in batch]
+            rank_nuc_pct = [torch.tensor([nuc_pct[i][raw_genes[i].index(gene)] for gene in gene_list]) for i,gene_list in enumerate(ranked_genes)] #getting the nucleus expression percentage level
+
+
+            # import pdb; pdb.set_trace()
+            # ranked_exp = get_rank_exp(raw_genes, raw_exps, ranked_genes)
+            ranked_exp = [torch.tensor([raw_exps[i][0][raw_genes[i].index(gene)] for gene in gene_list]) for i,gene_list in enumerate(ranked_genes)] #getting the ranked expression level
+            # import pdb; pdb.set_trace()
+
+
+            dis_mtx = [torch.tensor(item['Distance_Matrix']) for item in batch]
             
             # import pdb; pdb.set_trace()
             full_tokens = torch.full((len(Full_Tokens), self.context_length), self.padding_idx, dtype=torch.int)
             for i, v in enumerate(Full_Tokens):
-                full_tokens[i,:v.size(0)] = v
+                full_tokens[i,:v.size(0)-(4-special_token_num)] = v[4-special_token_num:]
+            
+            # import pdb; pdb.set_trace()
+            full_exp = torch.full((len(Full_Tokens), self.context_length), self.padding_idx, dtype=torch.int)
+            for i, v in enumerate(raw_exp):
+                full_exp[i,: v.size(0)] = v
+            
+
+
+            norm_exp = torch.full((len(ranked_exp), self.context_length), self.padding_idx, dtype=torch.float)
+            nuc_exp = torch.full((len(rank_nuc_pct), self.context_length), self.padding_idx, dtype=torch.float)
+            cyto_exp = torch.full((len(rank_nuc_pct), self.context_length), self.padding_idx, dtype=torch.float)
+            for i, e in enumerate(ranked_exp):
+                # import pdb; pdb.set_trace()
+                e = binning(
+                    row=e,
+                    n_bins=n_bins,
+                )
+                # import pdb; pdb.set_trace()
+                #e already 0-1
+                nuc_e = e*rank_nuc_pct[i]
+                # import pdb; pdb.set_trace()
+                cyto_e = (1-rank_nuc_pct[i])*e
+                
+                norm_exp[i,self.special_token_num:self.special_token_num+e.size(0)] = e
+                nuc_exp[i,self.special_token_num:self.special_token_num+nuc_e.size(0)] = nuc_e
+                cyto_exp[i,self.special_token_num:self.special_token_num+cyto_e.size(0)] = cyto_e
+                # import pdb; pdb.set_trace()
+
             # import pdb; pdb.set_trace()
             # Pad sequences
             attention_masks = (full_tokens != self.padding_idx).bool()
-            # import pdb; pdb.set_trace()
+
 
             # Pad 2D matrices
             gg_mtx_p = torch.full((len(gg_mtx), self.context_length, self.context_length), self.padding_idx, dtype=torch.float)
             for i, mat in enumerate(gg_mtx):
                 current_size = mat.shape[0]
-                gg_mtx_p[i, :current_size, :current_size] = mat
+                gg_mtx_p[i, self.special_token_num:(current_size+self.special_token_num), self.special_token_num:(self.special_token_num+current_size)] = mat
+            # print("before:",gg_mtx_p[0])
+            dis_mtx_p = torch.full((len(dis_mtx), self.context_length, self.context_length), self.padding_idx, dtype=torch.float)
+            for i, mat in enumerate(dis_mtx):
+                current_size = mat.shape[0]
+                norm_mat = uniform_quantile_global(mat)
+                # norm_mat = uniform_quantile_global(mat)
+                dis_mtx_p[i, self.special_token_num:(current_size+self.special_token_num), self.special_token_num:(self.special_token_num+current_size)] = norm_mat
+            # import pdb; pdb.set_trace()
+            if not directionality:
+                rows_with_ones = torch.any(gg_mtx_p == 1, dim=2)
+                cols_with_ones = torch.any(gg_mtx_p == 1, dim=1)
+
+                # Expand dimensions to match the shape of the original matrix for broadcasting
+                rows_with_ones = rows_with_ones.unsqueeze(2)
+                cols_with_ones = cols_with_ones.unsqueeze(1)
+
+                # Set the entire row and column to 1 if there is at least one 1
+                gg_mtx_p = torch.logical_or(rows_with_ones, cols_with_ones)
+                gg_mtx_p = gg_mtx_p.int()
+            # import pdb; pdb.set_trace()
+            # dis_mtx_p = torch.rand(0,1,size = (self.context_length, self.context_length), device = gg_mtx_p.device)
+            # dis_mtx_p.expaned(len(gg_mtx), dim = 0)
+            # print("after:",gg_mtx_p[0])
             # import pdb; pdb.set_trace()
             return {
                 'adjmtx': gg_mtx_p,
                 'indices': full_tokens,
-                'attention_mask': attention_masks
+                'attention_mask': attention_masks,
+                'normalized_exp': norm_exp,
+                'distance_mat': dis_mtx_p,
+                "nuc_exp":  nuc_exp,
+                "cyto_exp": cyto_exp,
+                "annotation": annotation,
+                "Expression": full_exp
             }
 
     data_collator = CustomDataCollator(context_length, padding_idx=0)
-    # Create DataLoaders
-    # train_dataloader = DataLoader(tokenized_datasets["train"], batch_size=batch_size, collate_fn=data_collator, shuffle=True)
-    val_dataloader = DataLoader(tokenized_datasets["validation"], collate_fn=data_collator, batch_size=batch_size)
-    # test_dataloader = DataLoader(tokenized_datasets["test"], collate_fn=data_collator, batch_size=batch_size)
-    combined_dataset = concatenate_datasets([tokenized_datasets["train"], tokenized_datasets["test"]])
-    train_dataloader = DataLoader(combined_dataset, collate_fn=data_collator, batch_size=batch_size)
-    return train_dataloader, val_dataloader
-
+    if split_num == 2:
+        # Create DataLoaders
+        # train_dataloader = DataLoader(tokenized_datasets["train"], batch_size=batch_size, collate_fn=data_collator, shuffle=True)
+        val_dataloader = DataLoader(tokenized_datasets["validation"], collate_fn=data_collator, batch_size=batch_size)
+        # test_dataloader = DataLoader(tokenized_datasets["test"], collate_fn=data_collator, batch_size=batch_size)
+        combined_dataset = concatenate_datasets([tokenized_datasets["train"], tokenized_datasets["test"]])
+        train_dataloader = DataLoader(combined_dataset, collate_fn=data_collator, batch_size=batch_size)
+        return train_dataloader, val_dataloader
+    elif split_num == 1:
+        
+        combined_dataloader = DataLoader(tokenized_datasets, collate_fn=data_collator, batch_size=batch_size)
+        return combined_dataloader
 def get_dataset(data_path):
     data_name = data_path.split("/")[-1].split(".h5")[0]
     save_path = os.path.join(data_dir, data_name, "processed", data_name + "_" + "arrow")

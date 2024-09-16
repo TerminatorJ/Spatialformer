@@ -31,7 +31,7 @@ os.environ['TORCH_USE_CUDA_DSA'] = '1'
 os.environ["WANDB_DIR"] = "/home/sxr280/Spatialformer/cache"
 os.environ["WANDB_CONFIG_DIR"] = "/home/sxr280/Spatialformer/cache"
 os.environ["WANDB_CACHE_DIR"] = "/home/sxr280/Spatialformer/cache"
-hf_cache = "/tmp/erda/Spatialformer"
+hf_cache = "/home/sxr280/Spatialformer/cache"
 data_path = "/home/sxr280/Spatialformer/wandb"
 # data_name = [file.split("/")[-1] for file in os.listdir(data_path) if "relabel" in file]
 # adata_paths = [os.path.join(data_path, name, "processed", name + "." + "h5ad") for name in data_name]
@@ -61,6 +61,7 @@ def manual_train_fm(config=None):
                         bpp=config['bpp'],
                         bpp_scale = config['bpp_scale'],
                         ag_loss = config['ag_loss'],
+                        mask_way = config['mask_way'], 
                         outer_config = config)
                       
 
@@ -80,11 +81,11 @@ class MyTrainer:
         callbacks = [
         ModelCheckpoint(
             dirpath=os.path.join(self.output_dir, "checkpoints"),
-            filename=f"{{step:07d}}-{{train_loss:.4f}}-{{val_loss:.4f}}",
-            every_n_train_steps=1000,
+            filename=f"{{step:07d}}-{{train_total_loss:.4f}}-{{val_total_loss:.4f}}",
+            every_n_train_steps=2000,
             save_top_k=-1,
             # every_n_epochs=1,
-            monitor='train_loss',
+            monitor='train_total_loss',
             save_on_train_epoch_end=False
         ), LearningRateMonitor(logging_interval="step"),
         # EarlyStopping(monitor = "val_loss", min_delta = 0.00, verbose = True, mode = "min")
@@ -92,11 +93,11 @@ class MyTrainer:
 
         return callbacks
     def set_trainer(self):
-        # self.logger = WandbLogger(project = "Spaformer", 
-        #                           name = "pilot", 
-        #                           log_model = "all", 
-        #                           save_dir = self.output_dir)
-        self.logger = CSVLogger("/home/sxr280/Spatialformer/output", name="my_experiment")
+        self.logger = WandbLogger(project = "Spaformer", 
+                                  name = "pilot", 
+                                  log_model = "all", 
+                                  save_dir = self.output_dir)
+        # self.logger = CSVLogger("/home/sxr280/Spatialformer/output", name="my_experiment")
         
         self.trainer = pl.Trainer(
             accelerator="auto",
@@ -246,9 +247,12 @@ if __name__ == "__main__":
     # for batch in train_dataloader:
     #     pass
     Trainer = MyTrainer(config = config)
-
-    Trainer.train(train_dataloader, val_dataloader)
-    # Trainer.resume_train("/home/sxr280/Spatialformer/output/checkpoints/step=0005000-train_loss=0.0065-val_loss=0.0051.ckpt", train_dataloader, val_dataloader)
+    if config["retake_training"]:
+    # Trainer.train(train_dataloader, val_dataloader)
+        # Trainer.resume_train("/home/sxr280/Spatialformer/output/checkpoints/step=0003000-train_total_loss=0.6783-val_total_loss=0.6794.ckpt", train_dataloader, val_dataloader)
+        Trainer.resume_train(config["pretrained_path"], train_dataloader, val_dataloader)
+    else:
+        Trainer.train(train_dataloader, val_dataloader)
     # print("skip the training, only getting the test performance###")
     # test 
     # Trainer.test(test_dataloader)

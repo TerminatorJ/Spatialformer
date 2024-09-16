@@ -114,6 +114,7 @@ class MaskedSoftmax(nn.Module):
             # Since we are adding it to the raw scores before the softmax, this
             # is effectively the same as removing these entirely.
             # inputs += adder
+            # import pdb; pdb.set_trace()
             inputs = inputs.masked_fill(~mask, torch.finfo(inputs.dtype).min)
         return F.softmax(inputs, dim=self.dim)#, dtype=torch.float32)
 
@@ -122,6 +123,7 @@ class AltAttention(nn.Module):
     def __init__(self, dim=256, num_heads=4, dropout=0, **kwargs):
         super().__init__(**kwargs)
         self.dim = dim
+        self.attn_score = None
         self.scale = self.dim ** -0.5
         self.num_heads = num_heads
         self.qkv = nn.Linear(dim, 3 * dim, bias=True)
@@ -130,32 +132,37 @@ class AltAttention(nn.Module):
         # self.proj_drop = nn.Dropout(dropout)
 
     def forward(self, inputs, mask=None, alibi_bias=None):
-        qkv = self.qkv(inputs)
-        qkv = qkv.view(-1, inputs.shape[1], self.num_heads, self.dim * 3 // self.num_heads).permute(0, 2, 1, 3)
-        q, k, v = qkv.split([self.dim // self.num_heads] * 3, dim=-1)
+        # import pdb; pdb.set_trace()
+        qkv = self.qkv(inputs)# B x L X D -> B x L X 3D
+        qkv = qkv.view(-1, inputs.shape[1], self.num_heads, self.dim * 3 // self.num_heads).permute(0, 2, 1, 3) # B X H X L X 3D/H
+        q, k, v = qkv.split([self.dim // self.num_heads] * 3, dim=-1)# B X H X L X D/H
 
         if mask is not None:
-            mask = mask[:, None, None, :]
+            mask = mask[:, None, None, :] # B X 1 X 1 X L
         # import pdb; pdb.set_trace()
+        #calculating the attention score
         attn = torch.matmul(q, k.permute(0, 1, 3, 2)) * self.scale
-
+        
+        #attention score add with bias
         if alibi_bias is not None:
             attn = attn.type_as(alibi_bias)
             attn += alibi_bias
-            
+        # import pdb; pdb.set_trace()
         attn = MaskedSoftmax(dim=-1)(attn, mask=mask)#.to(q.dtype)
+        self.attn_score = attn
         attn = self.attn_drop(attn)
 
-        x = attn @ v
-        x = x.permute(0, 2, 1, 3).reshape(-1, inputs.shape[1], self.dim)
-        x = self.proj(x)
+        x = attn @ v # B X H X L X D/H
+        x = x.permute(0, 2, 1, 3).reshape(-1, inputs.shape[1], self.dim)# B X L X D
+        #feedforward# B X L X D
+        #getting the final Z
+        x = self.proj(x)# B X L X D
         # x = self.proj_drop(x)
         return x
 
 class AltBlock(nn.Module):
     def __init__(self, dim=256, num_heads=4, expand=4, attn_dropout=0.2, mlp_dropout=0.2, drop_path=0., activation='gelu', prenorm=True, **kwargs):
         super().__init__(**kwargs)
-
         self.norm1 = nn.LayerNorm(dim)#MaskedBatchNorm1d(dim, momentum=0.05, channels_last=True)
         self.self_attn = AltAttention(dim=dim,num_heads=num_heads,dropout=attn_dropout)
         self.drop1 = DropPath(drop_path)

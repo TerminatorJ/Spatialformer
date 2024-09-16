@@ -7,12 +7,14 @@ import numpy as np
 from communities.algorithms import louvain_method
 import networkx as nx
 import torch
-import torch_geometric
-from torch_geometric.utils import to_undirected, to_dense_adj, remove_self_loops
+# import torch_geometric
+# from torch_geometric.utils import to_undirected, to_dense_adj, remove_self_loops
 import random
 from collections import defaultdict, Counter
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
 from scipy.sparse import coo_matrix
+from typing import Dict, Optional, Union
+# import logging
 
 
 def unique_list_mapping_to_one_hot(unique_list: List, target_list: List)-> np.array:
@@ -230,11 +232,111 @@ def read_h5(file_object, cell_id):
 
 
 
-def complete_masking(batch, p, n_tokens):
+def uniform_quantile_global(values: torch.Tensor):
+    # Flatten the tensor to treat it as a single list of values
+    flattened_values = values.flatten()
     
+
+    # Compute quantiles for each unique value
+    bins = torch.quantile(values ,torch.linspace(0, 1, 100))
+    # value_to_quantile = dict(zip(unique_vals, quantiles))
+    left_digits = np.digitize(values.numpy(), bins)
+    # Map each value in the original flattened tensor to its corresponding quantile
+    #for the diagnal values add a extremly small value
+    # Define an extremely small value
+    epsilon = 1e-10
+    # Create an identity matrix of the same size
+    identity_matrix = torch.eye(left_digits.shape[0])
+
+    # Convert flattened_values to a NumPy array for mapping
+    p = 1 - torch.eye(left_digits.shape[0])
+    # import pdb; pdb.set_trace()
+    left_digits =  (torch.from_numpy(left_digits) * p / left_digits.max()) + epsilon * identity_matrix #the diagnal values are distinguishable to 0 in order to easy for masking
+
+    # import pdb; pdb.set_trace()
+    return left_digits
+
+
+
+
+def _digitize(x: np.ndarray, bins: np.ndarray, side="one") -> np.ndarray:
+    """
+    Digitize the data into bins. This method spreads data uniformly when bins
+    have same values.
+
+    Args:
+
+    x (:class:`np.ndarray`):
+        The data to digitize.
+    bins (:class:`np.ndarray`):
+        The bins to use for digitization, in increasing order.
+    side (:class:`str`, optional):
+        The side to use for digitization. If "one", the left side is used. If
+        "both", the left and right side are used. Default to "one".
+
+    Returns:
+
+    :class:`np.ndarray`:
+        The digitized data.
+    """
+    # import pdb; pdb.set_trace()
+    assert x.ndim == 1 and bins.ndim == 1
+
+    left_digits = np.digitize(x, bins)
+    if side == "one":
+        return left_digits
+
+    right_difits = np.digitize(x, bins, right=True)
+
+    rands = np.random.rand(len(x))  # uniform random numbers
+
+    digits = rands * (right_difits - left_digits) + left_digits
+    digits = np.ceil(digits).astype(np.int64)
+    return digits
+
+
+def binning(
+    row: Union[np.ndarray, torch.Tensor], n_bins: int
+) -> Union[np.ndarray, torch.Tensor]:
+    """Binning the row into n_bins."""
+    dtype = row.dtype
+    return_np = False if isinstance(row, torch.Tensor) else True
+    row = row.cpu().numpy() if isinstance(row, torch.Tensor) else row
+    # TODO: use torch.quantile and torch.bucketize
+    # import pdb; pdb.set_trace()
+    if row.max() == 0:
+        print(
+            "The input data contains row of zeros. Please make sure this is expected."
+        )
+        return (
+            np.zeros_like(row, dtype=dtype)
+            if return_np
+            else torch.zeros_like(row, dtype=dtype)
+        )
+
+    if row.min() <= 0:
+        non_zero_ids = row.nonzero()
+        non_zero_row = row[non_zero_ids]
+        bins = np.quantile(non_zero_row, np.linspace(0, 1, n_bins - 1))
+        non_zero_digits = _digitize(non_zero_row, bins)
+        binned_row = np.zeros_like(row, dtype=np.int64)
+        binned_row[non_zero_ids] = non_zero_digits
+    else:
+        # import pdb; pdb.set_trace()
+        bins = np.quantile(row, np.linspace(0, 1, n_bins - 1))
+        binned_row = _digitize(row, bins)/_digitize(row, bins).max()
+
+    return torch.from_numpy(binned_row) if not return_np else binned_row.astype(dtype)
+
+
+
+def complete_masking(batch, p, n_tokens):
+    '''
+    This is used to mask the tokens for the mask language model head.
+    '''
     padding_token = 0
-    cls_token = 2
-    mask_token = 353
+    cls_token = 1
+    mask_token = 2
 
     indices = batch['indices']
     # import pdb; pdb.set_trace()
@@ -260,10 +362,7 @@ def complete_masking(batch, p, n_tokens):
     mask = torch.where(mask == 0, mask_token, mask)
 
     mask = torch.where(indices == padding_token, torch.tensor(padding_token), mask)
-   
 
-
-    
     # 80% of masked indices are masked
     # 10% of masked indices are a random token
     # 10% of masked indices are the real token
@@ -281,6 +380,84 @@ def complete_masking(batch, p, n_tokens):
     masked_indices = torch.where(indices != padding_token, masked_indices, indices) # don't mask the padding sites
     batch['masked_indices'] = masked_indices
     batch['mask'] = mask
+
+    return batch
+
+
+def complete_edge_masking(dis_mtx, p):
+    '''
+    This can be used to mask the edges of the distance of gene pairs
+    '''
+    padding_token = 0
+    cls_token = 1
+    mask_token = 2
+    # import pdb; pdb.set_trace()
+    # Fetch the distance matrix - ground truth
+
+    # Create a mask for the distance matrix with probability p
+    mask = 1 - torch.bernoulli(torch.ones_like(dis_mtx) * p).int() #set 15% edges for masking as 0
+
+    masked_dis_mtx = dis_mtx * mask #set mask tag to the whole matrix, including cls and padding sites
+    # Apply the mask to the distances
+    masked_dis_mtx = torch.where(masked_dis_mtx == 0, torch.tensor(mask_token), dis_mtx)  # step 1: Represent masked distances with mask token
+    masked_dis_mtx = torch.where(dis_mtx != padding_token, masked_dis_mtx, dis_mtx) # step 2: we just mask non-padding indices, 
+    mask = torch.where(dis_mtx == padding_token, torch.tensor(padding_token), mask) # step 3: the mask sequence with the padding tokens
+    # Handling padding and CLS tokens
+    # Notice for the following 2 lines that masked_indices has already not a single padding token masked
+    masked_dis_mtx = torch.where(dis_mtx != cls_token, masked_dis_mtx, dis_mtx) # step 4: same with CLS, no CLS token can be masked
+    mask = torch.where(dis_mtx == cls_token, torch.tensor(padding_token), mask) # we change the mask so that it doesn't mask any CLS token
+    #setting the 0 to the mask tokens
+    mask = torch.where(mask == 0, mask_token, mask)
+
+    mask = torch.where(dis_mtx == padding_token, torch.tensor(padding_token), mask)
+
+
+    # 80% of masked indices are masked
+    # 10% of masked indices are a random token
+    # 10% of masked indices are the real token
+    # import pdb; pdb.set_trace()
+    #10 means the start token of the real gene names
+    # random_dis = torch.rand(size=masked_dis_mtx.shape, device=masked_dis_mtx.device) #because the distance has been normalized to 0-1, the random distance should be 0-1
+    # random_dis = random_dis * torch.bernoulli(torch.ones_like(random_dis) * 0.1).type(torch.int64) #apply 10%
+    # random_dis = torch.where(random_dis == 0, mask_token, random_dis)
+    # masked_dis_mtx = torch.where(masked_dis_mtx == mask_token, random_dis, masked_dis_mtx) # put random tokens just in the previously masked tokens
+
+    # same_dis_mtx = dis_mtx.clone()
+    # same_dis = same_dis_mtx * torch.bernoulli(torch.ones_like(same_dis_mtx) * 0.1).type(torch.int64)
+    # same_dis = torch.where(same_dis == 0, mask_token, same_dis_mtx)
+    # masked_dis_mtx = torch.where(masked_dis_mtx == mask_token, same_dis, masked_dis_mtx) # put same tokens just in the previously masked tokens
+    # masked_dis_mtx = torch.where(masked_dis_mtx != padding_token, masked_dis_mtx, dis_mtx) # don't mask the padding sites
+
+
+
+    # batch['masked_dis_mtx'] = masked_dis_mtx
+    # batch['mask_2d'] = mask
+
+    return masked_dis_mtx, mask
+
+def categorical_2d_masking(batch, p = 0.5):
+    '''
+    The input of this fuction should be a binary co-occurrency matrix
+    This can be used to mask the edges of the distance of gene pairs
+    '''
+    import pdb; pdb.set_trace()
+    padding_token = 0
+    cls_token = 1
+    mask_token = 2
+    # import pdb; pdb.set_trace()
+    # Fetch the distance matrix - ground truth, which is a binaray matrix
+    co_mtx = batch['Gene_Gene_Matrix']
+    nco_mtx = 1 - batch['Gene_Gene_Matrix']
+
+    masked_co_mtx, co_mask = complete_edge_masking(co_mtx, p)
+    masked_nco_mtx, nco_mask = complete_edge_masking(nco_mtx, p)
+
+    masked_adj_mtx = co_mtx * masked_co_mtx + nco_mtx * masked_nco_mtx
+    mask = co_mtx * co_mask + nco_mtx * nco_mask
+
+
+    batch['masked_adj_mtx'] = masked_adj_mtx
+    batch['mask_2d'] = mask
 
     return batch
 

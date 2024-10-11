@@ -1,0 +1,2 @@
+python find_gene_interaction.py --transcript_file /tmp/erda/Spatialformer/downloaded_data/raw/Xenium_V1_Human_Brain_GBM_FFPE_outs/transcripts.csv.gz --number_cell 816769 --partition 35 --dataname Xenium_V1_Human_Brain_GBM_FFPE_outs;
+python find_gene_interaction.py --transcript_file /tmp/erda/Spatialformer/downloaded_data/raw/Xenium_V1_Human_Brain_GBM_FFPE_outs/transcripts.csv.gz --number_cell 816769 --partition 39 --dataname Xenium_V1_Human_Brain_GBM_FFPE_outs;

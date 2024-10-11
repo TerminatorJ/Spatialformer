@@ -1,0 +1,19 @@
+total 28
+drwxr-xr-x.   2 sxr280 users      6 Sep 25 15:27 .
+drwxrwxrwt. 298 root   root  278528 Oct 10 00:10 ..
+The directory '/tmp/erda' contains 1 files.
+Running command: python find_gene_interaction.py --transcript_file /tmp/erda/Spatialformer/downloaded_data/raw/Xenium_V1_FFPE_Human_Breast_IDC_With_Addon_outs/transcripts.csv.gz --number_cell 576963 --partition 1 --dataname Xenium_V1_FFPE_Human_Breast_IDC_With_Addon_outs;
+2024-10-10 00:20:16,652 - INFO - The number of cells that are kept: 561705
+2024-10-10 00:20:16,653 - INFO - Mean transcripts per cell: 178.92501401981468
+2024-10-10 00:20:16,654 - INFO - Total transcripts left: 100503075
+2024-10-10 00:20:19,569 - INFO - Gene number after filtering: 380
+2024-10-10 00:20:20,170 - INFO - total partitions you need are: 29
+  0%|          | 0/100 [00:00<?, ?it/s]2024-10-10 00:22:35,573 - ERROR - Error processing cell_id -1: Unable to allocate 3.89 TiB for an array with shape (731480, 731480) and data type float64
+  0%|          | 0/100 [02:12<?, ?it/s]
+Traceback (most recent call last):
+  File "find_gene_interaction.py", line 161, in <module>
+    pairs_num.extend([i[2] for i in result])
+  File "find_gene_interaction.py", line 161, in <listcomp>
+    pairs_num.extend([i[2] for i in result])
+IndexError: tuple index out of range
+fusermount: failed to unmount /tmp/erda: Device or resource busy

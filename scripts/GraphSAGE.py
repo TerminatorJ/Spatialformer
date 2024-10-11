@@ -84,6 +84,7 @@ def build_graph_for_sample(data, threshold=3.0, batch_size=100, sample_id = None
         batch_r_c = r_c[start_idx:end_idx]
         edges_to_add = []
         for i, x in enumerate(batch_r_c, start=start_idx):
+            # import pdb; pdb.set_trace()
             neighbors_idx = kdtree.query_ball_point(x, threshold)
             for j in neighbors_idx:
                 if i < j:
@@ -374,15 +375,6 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description='calculate the gene graph')
     parser.add_argument('--save_graph', action = 'store_true', help='only save the graph for each sample')
-
-    # parser.add_argument('--radius', type=int, default=5, help='the radius to separate compartments')
-    # parser.add_argument('--pair_threshold', type=int, default=3, help='the pair threshold for the same transcripts and different transcripts')
-    # parser.add_argument('--number_cell', type=int, default=2, help='number of cells that are used to calculate, this can be useful for debugging the codes and gene-gene pipeline')
-    # parser.add_argument('--transcript_file', type=str, default="/scratch/project_465001027/nicheformer/src/nicheformer/data/raw/Xenium_Preview_Human_Non_diseased_Lung_With_Add_on_FFPE_outs/transcripts.csv", help='the file path of the transcript')
-    # parser.add_argument('--partition', type=int, default=1, help='The partition of cell_id that are used to run separately')
-    # parser.add_argument('--chunks', type=int, default=20000, help='The number of chunks for dividing the cell_ids')
-    # parser.add_argument('--dataname', type=str, default=None, help='The overall name of the dataset')
-    # parser.add_argument('--datapath_name', type=str, default="david_data", help='The name of the data path that is used to store all the raw and processed dataset')
     args = parser.parse_args()
 
 
@@ -392,6 +384,7 @@ if __name__ == "__main__":
     if args.save_graph:
         #saving all the intermediate data
         # import pdb; pdb.set_trace()
+        # build_graph_for_sample(load_and_preprocess_data(sample_files[0]), sample_id = sample_files[0].split("__")[-3])
         all_samples = [build_graph_for_sample(load_and_preprocess_data(sample_file), sample_id = sample_file.split("__")[-3]) for sample_file in sample_files if f'subgraph_data_{sample_file.split("__")[-3]}.pt' not in os.listdir(data_dir)]
         # import pdb; pdb.set_trace()
     else:

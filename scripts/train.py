@@ -26,8 +26,8 @@ from datasets import DatasetDict, load_dataset, concatenate_datasets
 from torch.utils.data import ConcatDataset
 from h5toloader import get_dataset,create_data_loaders
 os.environ["WANDB_CACHE_DIR"] = "/home/sxr280/Spatialformer/cache"
-os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
-os.environ['TORCH_USE_CUDA_DSA'] = '1'
+# os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
+# os.environ['TORCH_USE_CUDA_DSA'] = '1'
 os.environ["WANDB_DIR"] = "/home/sxr280/Spatialformer/cache"
 os.environ["WANDB_CONFIG_DIR"] = "/home/sxr280/Spatialformer/cache"
 os.environ["WANDB_CACHE_DIR"] = "/home/sxr280/Spatialformer/cache"
@@ -193,51 +193,59 @@ if __name__ == "__main__":
         config = json.load(json_file)
 
     # tokenized_datasets = get_dataset(data_path)
-    file_names = ["relabel_output-XETG00048__0003392__THD0008__20230313__191400",
-                  "relabel_output-XETG00048__0003400__THD0011__20230313__191400",
-                  "relabel_output-XETG00048__0003400__TILD117LF__20230313__191400",
-                  "relabel_output-XETG00048__0003400__VUILD91LF__20230313__191400",
-                  "relabel_output-XETG00048__0003400__VUILD78LF__20230313__191400",
-                  "relabel_output-XETG00048__0003789__VUHD095__20230308__003731",
-                  "relabel_output-XETG00048__0003789__VUILD104LF__20230308__003731",
-                  "relabel_output-XETG00048__0003392__VUILD115__20230313__191400",
-                  "relabel_output-XETG00048__0003817__VUILD107MF__20230308__003731",
-                  "relabel_output-XETG00048__0003392__VUILD106__20230313__191400",
-                  "relabel_output-XETG00048__0003789__VUHD069__20230308__003731",
-                  "relabel_output-XETG00048__0003817__VUILD102LF__20230308__003731",
-                  "relabel_output-XETG00048__0003789__VUILD48MF__20230308__003731",
-                  "relabel_output-XETG00048__0003817__VUILD96LF__20230308__003730",
-                  "relabel_output-XETG00048__0003400__VUILD78MF__20230313__191400",
-                  "relabel_output-XETG00048__0003400__TILD175__20230313__191400",
-                  "relabel_output-XETG00048__0003817__VUILD102MF__20230308__003730",
-                  "relabel_output-XETG00048__0003400__TILD117MF__20230313__191400",
-                  "relabel_output-XETG00048__0003817__VUILD96MF__20230308__003730",
-                  "relabel_output-XETG00048__0003817__VUHD116A__20230308__003730",
-                  "relabel_output-XETG00048__0003789__VUILD105MF__20230308__003731",
-                  "relabel_output-XETG00048__0003817__VUHD116B__20230308__003731",
-                  "relabel_output-XETG00048__0003392__VUILD110__20230313__191400",
-                  "relabel_output-XETG00048__0003789__VUHD113__20230308__003731",
-                  "relabel_output-XETG00048__0003400__VUILD91MF__20230313__191400"]
+    # file_names = ["relabel_output-XETG00048__0003392__THD0008__20230313__191400",
+    #               "relabel_output-XETG00048__0003400__THD0011__20230313__191400",
+    #               "relabel_output-XETG00048__0003400__TILD117LF__20230313__191400",
+    #               "relabel_output-XETG00048__0003400__VUILD91LF__20230313__191400",
+    #               "relabel_output-XETG00048__0003400__VUILD78LF__20230313__191400",
+    #               "relabel_output-XETG00048__0003789__VUHD095__20230308__003731",
+    #               "relabel_output-XETG00048__0003789__VUILD104LF__20230308__003731",
+    #               "relabel_output-XETG00048__0003392__VUILD115__20230313__191400",
+    #               "relabel_output-XETG00048__0003817__VUILD107MF__20230308__003731",
+    #               "relabel_output-XETG00048__0003392__VUILD106__20230313__191400",
+    #               "relabel_output-XETG00048__0003789__VUHD069__20230308__003731",
+    #               "relabel_output-XETG00048__0003817__VUILD102LF__20230308__003731",
+    #               "relabel_output-XETG00048__0003789__VUILD48MF__20230308__003731",
+    #               "relabel_output-XETG00048__0003817__VUILD96LF__20230308__003730",
+    #               "relabel_output-XETG00048__0003400__VUILD78MF__20230313__191400",
+    #               "relabel_output-XETG00048__0003400__TILD175__20230313__191400",
+    #               "relabel_output-XETG00048__0003817__VUILD102MF__20230308__003730",
+    #               "relabel_output-XETG00048__0003400__TILD117MF__20230313__191400",
+    #               "relabel_output-XETG00048__0003817__VUILD96MF__20230308__003730",
+    #               "relabel_output-XETG00048__0003817__VUHD116A__20230308__003730",
+    #               "relabel_output-XETG00048__0003789__VUILD105MF__20230308__003731",
+    #               "relabel_output-XETG00048__0003817__VUHD116B__20230308__003731",
+    #               "relabel_output-XETG00048__0003392__VUILD110__20230313__191400",
+    #               "relabel_output-XETG00048__0003789__VUHD113__20230308__003731",
+    #               "relabel_output-XETG00048__0003400__VUILD91MF__20230313__191400"]
 
 
-    try:
-        print("load data from disk")
-        # import pdb; pdb.set_trace()
-        combined_dataset = load_from_disk(os.path.join(hf_cache,"xenium_25_lung_dataset_update3"))
-        # combined_dataset = load_dataset("TerminatorJ/xenium_25_lung_dataset_update3", cache_dir = hf_cache, num_proc = 1)
-    except:
-        train_datasets, test_datasets, val_datasets = get_all_dataset(file_names)
-        # import pdb; pdb.set_trace()
-        #concating all the dataset
-        combined_dataset = DatasetDict({
-        'train': concatenate_datasets(train_datasets),
-        'test': concatenate_datasets(test_datasets),
-        'validation': concatenate_datasets(val_datasets)
-        })
+    # try:
+    #     print("load data from disk")
+    #     # import pdb; pdb.set_trace()
+    #     combined_dataset = load_from_disk(os.path.join(hf_cache,"xenium_25_lung_dataset_update4"))
 
-        #push the integrated dataset to the hub
-        combined_dataset.push_to_hub("xenium_25_lung_dataset")
+    #     # combined_dataset = load_dataset("TerminatorJ/xenium_25_lung_dataset_update3", cache_dir = hf_cache, num_proc = 1)
+    # except:
+    #     train_datasets, test_datasets, val_datasets = get_all_dataset(file_names)
+    #     # import pdb; pdb.set_trace()
+    #     #concating all the dataset
+    #     combined_dataset = DatasetDict({
+    #     'train': concatenate_datasets(train_datasets),
+    #     'test': concatenate_datasets(test_datasets),
+    #     'validation': concatenate_datasets(val_datasets)
+    #     })
 
+    #     #push the integrated dataset to the hub
+    #     combined_dataset.push_to_hub("xenium_25_lung_dataset")
+    root = "/tmp/erda/Spatialformer/downloaded_data/processed/"
+    concat_name = "xenium_pan_dataset"
+    out_path = os.path.join(root, concat_name)
+    import pdb; pdb.set_trace()
+    combined_dataset = load_from_disk(out_path)
+    import pdb; pdb.set_trace()
+    
+    # combined_dataset = load_from_disk("/tmp/erda/Spatialformer/downloaded_data/processed/xenium_pan_dataset")
     # import pdb; pdb.set_trace()
 
     
@@ -246,6 +254,7 @@ if __name__ == "__main__":
     train_dataloader, val_dataloader = create_data_loaders(combined_dataset, batch_size=config["batch_size"], context_length=config["context_length"], special_token_num = 0, directionality = config["directionality"])
     # for batch in train_dataloader:
     #     pass
+    # import pdb; pdb.set_trace()
     Trainer = MyTrainer(config = config)
     if config["retake_training"]:
     # Trainer.train(train_dataloader, val_dataloader)

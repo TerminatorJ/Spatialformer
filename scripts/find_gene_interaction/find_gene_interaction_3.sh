@@ -1,0 +1,2 @@
+python find_gene_interaction.py --transcript_file /tmp/erda/Spatialformer/downloaded_data/raw/Xenium_V1_hTonsil_reactive_follicular_hyperplasia_section_FFPE_outs/transcripts.csv.gz --number_cell 1349620 --partition 42 --dataname Xenium_V1_hTonsil_reactive_follicular_hyperplasia_section_FFPE_outs;
+python find_gene_interaction.py --transcript_file /tmp/erda/Spatialformer/downloaded_data/raw/Xenium_V1_Human_Brain_GBM_FFPE_outs/transcripts.csv.gz --number_cell 816769 --partition 6 --dataname Xenium_V1_Human_Brain_GBM_FFPE_outs;

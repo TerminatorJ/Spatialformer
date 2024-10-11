@@ -1,0 +1,16 @@
+[W 21:27:22.121 NotebookApp] Unrecognized alias: 'host', it will have no effect.
+[I 21:27:24.888 NotebookApp] [nb_conda_kernels] enabled, 7 kernels found
+[I 21:27:28.292 NotebookApp] [nb_conda] enabled
+[I 21:27:32.727 NotebookApp] Serving notebooks from local directory: /home/sxr280/Spatialformer/scripts
+[I 21:27:32.727 NotebookApp] Jupyter Notebook 6.3.0 is running at:
+[I 21:27:32.728 NotebookApp] http://localhost:8801/?token=260ea6423c16b89e52541459699e157baf6cb87fa39fada4
+[I 21:27:32.728 NotebookApp]  or http://127.0.0.1:8801/?token=260ea6423c16b89e52541459699e157baf6cb87fa39fada4
+[I 21:27:32.728 NotebookApp] Use Control-C to stop this server and shut down all kernels (twice to skip confirmation).
+[C 21:27:32.745 NotebookApp] 
+    
+    To access the notebook, open this file in a browser:
+        file:///home/sxr280/.local/share/jupyter/runtime/nbserver-1193040-open.html
+    Or copy and paste one of these URLs:
+        http://localhost:8801/?token=260ea6423c16b89e52541459699e157baf6cb87fa39fada4
+     or http://127.0.0.1:8801/?token=260ea6423c16b89e52541459699e157baf6cb87fa39fada4
+slurmstepd: error: *** JOB 2429 ON hendrixgpu10fl CANCELLED AT 2024-09-22T21:36:47 ***

@@ -34,7 +34,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 
 
 class GeneExpressionDataset:
-    def __init__(self, adata, data_path):
+    def __init__(self, adata, data_path, gene_median_dir, token_dir, erda):
         self.adata = adata
         self.dataset = None
         self.train_dataset = None
@@ -43,13 +43,24 @@ class GeneExpressionDataset:
         self.dataset_dict = None
         self.specie_dict = None
         self.ref_gene = None
-        self.token_indices = None
-        self.push_to_hub = True
+        if token_dir is not None:
+            with open(token_dir, "r") as file:
+                token_indices = json.load(file)
+            self.token_indices = token_indices
+        else:
+            self.token_indices = None
+
+        self.push_to_hub = False
         self.g_g_dict = adata.uns
         self.data_path = data_path
+        self.gene_median = gene_median_dir
         self.data_name = data_path.split("/")[-1].split(".h5")[0]
         # import pdb; pdb.set_trace()
-        self.save_path = os.path.join(data_dir, self.data_name, "processed", self.data_name + "_" + "arrow")
+        if erda:
+            self.save_path = os.path.join("/tmp/erda/Spatialformer/downloaded_data/", "processed", self.data_name + "_" + "arrow")
+
+        else:
+            self.save_path = os.path.join(data_dir, self.data_name, "processed", self.data_name + "_" + "arrow")
 
         
     def define_all_tokens(self):
@@ -93,7 +104,7 @@ class GeneExpressionDataset:
         expr = sample["Expression"][0][0]
         split = sample["Split"][0]
         genes = np.array(sample["Gene"][0])
-        # import pdb; pdb.set_trace()
+        
         g_g = self.g_g_dict[cell_id].toarray()
         
         #convert the nan to zeros
@@ -106,9 +117,11 @@ class GeneExpressionDataset:
         #getting the descending genes
         sorted_genes = genes[sorted_gene_nonzero_idx]
         #get the sorted tokens
+        
         sorted_tokens = list(map(lambda x: self.token_indices[x], sorted_genes))
         #getting other tokens
         #replace the name to token
+        # import pdb; pdb.set_trace()
         add_tokens = list(map(lambda x: self.token_indices[self.adata.obs.loc[cell_id, x]], ["Conditions", "Tissues", "Species", "Assay"]))
         # import pdb; pdb.set_trace()                
         #concate all tokens
@@ -135,7 +148,14 @@ class GeneExpressionDataset:
     def preprocess_data(self):
         logging.info(f"The data are undergoing preprocessing, it will take a couple minutes")
         
-
+        # Normalize by gene technique median
+        # loading the overall gene median that has been calculated beforehand
+        # gene_technique_mean = [self.adata.X[:, i][self.adata.X[:, i].nonzero()[0]].median() for i in range(self.adata.shape[1])]
+        gene_median_dict = pickle.load(open("/home/sxr280/Spatialformer/data/Xenium_median_gene_final_exp.pkl", "rb"))
+        # import pdb; pdb.set_trace()
+        gene_technique_mean = [gene_median_dict[gene] for gene in self.adata.var["gene_name"].values]
+        # import pdb; pdb.set_trace()
+        self.adata.X = self.adata.X / np.array(gene_technique_mean)
         # Normalize the cell to have 10,000 counts
         total_counts_per_cell = np.array(np.sum(self.adata.X, axis=1)).flatten()
         target_sum = 1e4
@@ -146,21 +166,21 @@ class GeneExpressionDataset:
                 normalized_expression[i, :] *= target_sum / cell_sum
         # import pdb; pdb.set_trace()
         self.adata.X = normalized_expression
-        # Normalize by gene technique mean
-        gene_technique_mean = [self.adata.X[:, i][self.adata.X[:, i].nonzero()[0]].median() for i in range(self.adata.shape[1])]
-        self.adata.X = self.adata.X / np.array(gene_technique_mean)
+        
 
         cell_ids = self.adata.obs.index
         #get the ranked gene(non-zero), and gene x gene interacrtion matrix filtered by the gene order
         self.ref_gene = np.array(sorted(adata.var["gene_name"].unique()))
         #getting the token indices
         # import pdb; pdb.set_trace()
-        self.define_all_tokens()
+        if self.token_indices is None:
+            self.define_all_tokens()
         data_list = self.adata_to_dict()
         # Split the data
         train_data = [d for d in data_list if d["Split"] == "train"]
         test_data = [d for d in data_list if d["Split"] == "test"]
         validation_data = [d for d in data_list if d["Split"] == "validation"]
+        # import pdb; pdb.set_trace()
         # Create Hugging Face datasets
         # import pdb; pdb.set_trace()
         train_dataset = Dataset.from_list(train_data)
@@ -172,9 +192,10 @@ class GeneExpressionDataset:
             "test": test_dataset,
             "validation": validation_dataset
         })
+        # import pdb; pdb.set_trace()
         tokenized_datasets = dataset_dict.map(self.run_in_batch, batched = True, batch_size = 1)
         tokenized_datasets.set_format("torch")
-        
+        # import pdb; pdb.set_trace()
         # import pdb; pdb.set_trace()
         if len(cell_ids) < 100:
             pickle.dump(tokenized_datasets, open(self.save_path + ".pkl", "wb"))
@@ -232,13 +253,14 @@ def create_data_loaders(tokenized_datasets, batch_size=1, context_length=1500, s
             gg_mtx = [torch.tensor(item['Gene_Gene_Matrix']) for item in batch]
             Full_Tokens = [torch.tensor(item['Full_Tokens']) for item in batch]
             raw_exp = [torch.tensor(item['Expression'][0]) for item in batch]
-            annotation = [item['Annotations'] for item in batch]
+            # annotation = [item['Annotations'] for item in batch]
+            # niche_annotation = [item['Niche_Annotations'] for item in batch]
             # Norm_Exp = [torch.tensor(item['Normalized_Exp']) for item in batch]
             raw_genes = [item["Gene"] for item in batch]
             raw_exps = [item["Expression"] for item in batch]
             ranked_genes = [item["Ranked_Gene_Names"] for item in batch]
-            nuc_pct = [item["pct_nucleus"] for item in batch]
-            rank_nuc_pct = [torch.tensor([nuc_pct[i][raw_genes[i].index(gene)] for gene in gene_list]) for i,gene_list in enumerate(ranked_genes)] #getting the nucleus expression percentage level
+            # nuc_pct = [item["pct_nucleus"] for item in batch]
+            # rank_nuc_pct = [torch.tensor([nuc_pct[i][raw_genes[i].index(gene)] for gene in gene_list]) for i,gene_list in enumerate(ranked_genes)] #getting the nucleus expression percentage level
 
 
             # import pdb; pdb.set_trace()
@@ -247,7 +269,7 @@ def create_data_loaders(tokenized_datasets, batch_size=1, context_length=1500, s
             # import pdb; pdb.set_trace()
 
 
-            dis_mtx = [torch.tensor(item['Distance_Matrix']) for item in batch]
+            # dis_mtx = [torch.tensor(item['Distance_Matrix']) for item in batch]
             
             # import pdb; pdb.set_trace()
             full_tokens = torch.full((len(Full_Tokens), self.context_length), self.padding_idx, dtype=torch.int)
@@ -262,8 +284,8 @@ def create_data_loaders(tokenized_datasets, batch_size=1, context_length=1500, s
 
 
             norm_exp = torch.full((len(ranked_exp), self.context_length), self.padding_idx, dtype=torch.float)
-            nuc_exp = torch.full((len(rank_nuc_pct), self.context_length), self.padding_idx, dtype=torch.float)
-            cyto_exp = torch.full((len(rank_nuc_pct), self.context_length), self.padding_idx, dtype=torch.float)
+            # nuc_exp = torch.full((len(rank_nuc_pct), self.context_length), self.padding_idx, dtype=torch.float)
+            # cyto_exp = torch.full((len(rank_nuc_pct), self.context_length), self.padding_idx, dtype=torch.float)
             for i, e in enumerate(ranked_exp):
                 # import pdb; pdb.set_trace()
                 e = binning(
@@ -272,13 +294,13 @@ def create_data_loaders(tokenized_datasets, batch_size=1, context_length=1500, s
                 )
                 # import pdb; pdb.set_trace()
                 #e already 0-1
-                nuc_e = e*rank_nuc_pct[i]
+                # nuc_e = e*rank_nuc_pct[i]
                 # import pdb; pdb.set_trace()
-                cyto_e = (1-rank_nuc_pct[i])*e
+                # cyto_e = (1-rank_nuc_pct[i])*e
                 
                 norm_exp[i,self.special_token_num:self.special_token_num+e.size(0)] = e
-                nuc_exp[i,self.special_token_num:self.special_token_num+nuc_e.size(0)] = nuc_e
-                cyto_exp[i,self.special_token_num:self.special_token_num+cyto_e.size(0)] = cyto_e
+                # nuc_exp[i,self.special_token_num:self.special_token_num+nuc_e.size(0)] = nuc_e
+                # cyto_exp[i,self.special_token_num:self.special_token_num+cyto_e.size(0)] = cyto_e
                 # import pdb; pdb.set_trace()
 
             # import pdb; pdb.set_trace()
@@ -292,12 +314,12 @@ def create_data_loaders(tokenized_datasets, batch_size=1, context_length=1500, s
                 current_size = mat.shape[0]
                 gg_mtx_p[i, self.special_token_num:(current_size+self.special_token_num), self.special_token_num:(self.special_token_num+current_size)] = mat
             # print("before:",gg_mtx_p[0])
-            dis_mtx_p = torch.full((len(dis_mtx), self.context_length, self.context_length), self.padding_idx, dtype=torch.float)
-            for i, mat in enumerate(dis_mtx):
-                current_size = mat.shape[0]
-                norm_mat = uniform_quantile_global(mat)
-                # norm_mat = uniform_quantile_global(mat)
-                dis_mtx_p[i, self.special_token_num:(current_size+self.special_token_num), self.special_token_num:(self.special_token_num+current_size)] = norm_mat
+            # dis_mtx_p = torch.full((len(dis_mtx), self.context_length, self.context_length), self.padding_idx, dtype=torch.float)
+            # for i, mat in enumerate(dis_mtx):
+            #     current_size = mat.shape[0]
+            #     norm_mat = uniform_quantile_global(mat)
+            #     # norm_mat = uniform_quantile_global(mat)
+            #     dis_mtx_p[i, self.special_token_num:(current_size+self.special_token_num), self.special_token_num:(self.special_token_num+current_size)] = norm_mat
             # import pdb; pdb.set_trace()
             if not directionality:
                 rows_with_ones = torch.any(gg_mtx_p == 1, dim=2)
@@ -320,11 +342,13 @@ def create_data_loaders(tokenized_datasets, batch_size=1, context_length=1500, s
                 'indices': full_tokens,
                 'attention_mask': attention_masks,
                 'normalized_exp': norm_exp,
-                'distance_mat': dis_mtx_p,
-                "nuc_exp":  nuc_exp,
-                "cyto_exp": cyto_exp,
-                "annotation": annotation,
+                # 'distance_mat': dis_mtx_p,
+                # "nuc_exp":  nuc_exp,
+                # "cyto_exp": cyto_exp,
+                # "annotation": annotation,
+                # "niche_annotation":niche_annotation,
                 "Expression": full_exp
+
             }
 
     data_collator = CustomDataCollator(context_length, padding_idx=0)
@@ -376,19 +400,18 @@ def get_pair_num(adata):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='getting the dataloader for training the model')
     parser.add_argument('--data_path', type=str, default="None", help='The name of the processed h5 dataset')
+    parser.add_argument('--gene_median_dir', type=str, default="/home/sxr280/Spatialformer/data/Xenium_median_gene_final_exp.pkl", help='The path of the gene technical median')
+    parser.add_argument('--token_dir', type=str, default="/home/sxr280/Spatialformer/tokenizer/tokenv2.json", help='The path of the token vocabulary')
+    parser.add_argument('--erda', action = 'store_true', help='Whether to store the data into the ERDA system')
+
     # parser.add_argument('--data_name', type=str, default="None", help='The name of the raw dataset')
     args = parser.parse_args()
 
     start_time = time.time()
-    # adata = sc.read_h5ad("/scratch/project_465001027/spatialformer/data/processed/Xenium_Preview_Human_Non_diseased_Lung_With_Add_on_FFPE_outs/Xenium_Preview_Human_Non_diseased_Lung_With_Add_on_FFPE_outs_toy.h5ad")
-    # import pdb; pdb.set_trace()
-    #save to a tiny example h5 file to test the pipeline
-    # test_adata = adata[:10,:10]
-    # test_adata.uns =  {cell_id:test_adata.uns[cell_id] for cell_id in test_adata.obs.index}
-    #save the toy example
-    # test_adata.write("/scratch/project_465001027/spatialformer/data/processed/Xenium_Preview_Human_Non_diseased_Lung_With_Add_on_FFPE_outs/Xenium_Preview_Human_Non_diseased_Lung_With_Add_on_FFPE_outs_toy.h5ad")
-    
     data_path = args.data_path
+    gene_median_dir = args.gene_median_dir
+    token_dir = args.token_dir
+    erda = args.erda
     adata = sc.read_h5ad(data_path)
     mean,median = get_pair_num(adata)
     # import pdb; pdb.set_trace()
@@ -396,17 +419,9 @@ if __name__ == "__main__":
     logging.info(f"The mean number of the gene pairs is:{mean}; the median is: {median}")
     
     
-    mydataset = GeneExpressionDataset(adata, data_path)
+    mydataset = GeneExpressionDataset(adata, data_path, gene_median_dir, token_dir, erda)
     tokenized_datasets = mydataset.preprocess_data()
     
-    # data_path = "/scratch/project_465001027/spatialformer/data/processed/Xenium_Preview_Human_Non_diseased_Lung_With_Add_on_FFPE_outs/Xenium_Preview_Human_Non_diseased_Lung_With_Add_on_FFPE_outs.h5ad"
-    # tokenized_datasets = get_dataset(data_path)
-    
-    # train_dataloader, val_dataloader, test_dataloader = create_data_loaders(tokenized_datasets, batch_size=1)
-        
-    # for batch in train_dataloader:
-    #     matrix = batch["Gene_Gene_Matrix"]
-    # import pdb; pdb.set_trace()
     end_time = time.time()
     duration = end_time - start_time
     logging.info(f"The dataloader has been generated. Time taken: {duration:.2f} seconds")
@@ -414,3 +429,120 @@ if __name__ == "__main__":
 
 #demo
 # python h5toloader.py --data_path /scratch/project_465001027/spatialformer/david_data/relabel_output-XETG00048__0003392__THD0008__20230313__191400/processed/relabel_output-XETG00048__0003392__THD0008__20230313__191400.h5ad 
+
+#for the pandataset
+# python h5toloader.py --data_path /tmp/erda/Spatialformer/downloaded_data/processed/Xenium_V1_hSkin_nondiseased_section_2_FFPE_outs.h5ad --erda
+
+#Xenium_V1_hLung_cancer_section_outs
+# python h5toloader.py --data_path /tmp/erda/Spatialformer/downloaded_data/processed/Xenium_V1_hLung_cancer_section_outs.h5ad --erda
+
+#Xenium_Preview_Human_Non_diseased_Lung_With_Add_on_FFPE_outs
+# python h5toloader.py --data_path /tmp/erda/Spatialformer/downloaded_data/processed/Xenium_Preview_Human_Non_diseased_Lung_With_Add_on_FFPE_outs.h5ad --erda
+
+#Xenium_V1_FFPE_Human_Brain_Healthy_With_Addon_outs
+# python h5toloader.py --data_path /tmp/erda/Spatialformer/downloaded_data/processed/Xenium_V1_FFPE_Human_Brain_Healthy_With_Addon_outs.h5ad --erda
+
+#Xenium_V1_FFPE_Human_Brain_Glioblastoma_With_Addon_outs
+# python h5toloader.py --data_path /tmp/erda/Spatialformer/downloaded_data/processed/Xenium_V1_FFPE_Human_Brain_Glioblastoma_With_Addon_outs.h5ad --erda
+
+#Xenium_V1_FFPE_Human_Brain_Alzheimers_With_Addon_outs
+# python h5toloader.py --data_path /tmp/erda/Spatialformer/downloaded_data/processed/Xenium_V1_FFPE_Human_Brain_Alzheimers_With_Addon_outs.h5ad --erda
+
+#Xenium_V1_FFPE_Human_Breast_IDC_With_Addon_outs
+# python h5toloader.py --data_path /tmp/erda/Spatialformer/downloaded_data/processed/Xenium_V1_FFPE_Human_Breast_IDC_With_Addon_outs.h5ad --erda
+
+#Xenium_V1_hPancreas_Cancer_Add_on_FFPE_outs
+# python h5toloader.py --data_path /tmp/erda/Spatialformer/downloaded_data/processed/Xenium_V1_hPancreas_Cancer_Add_on_FFPE_outs.h5ad --erda
+
+#Xenium_V1_human_Pancreas_FFPE_outs
+# python h5toloader.py --data_path /tmp/erda/Spatialformer/downloaded_data/processed/Xenium_V1_human_Pancreas_FFPE_outs.h5ad --erda
+
+#Xenium_V1_hTonsil_follicular_lymphoid_hyperplasia_section_FFPE_outs
+# python h5toloader.py --data_path /tmp/erda/Spatialformer/downloaded_data/processed/Xenium_V1_hTonsil_follicular_lymphoid_hyperplasia_section_FFPE_outs.h5ad --erda
+
+#Xenium_V1_hSkin_nondiseased_section_1_FFPE_outs
+# python h5toloader.py --data_path /tmp/erda/Spatialformer/downloaded_data/processed/Xenium_V1_hSkin_nondiseased_section_1_FFPE_outs.h5ad --erda
+
+#Xenium_V1_hLiver_nondiseased_section_FFPE_outs
+# python h5toloader.py --data_path /tmp/erda/Spatialformer/downloaded_data/processed/Xenium_V1_hLiver_nondiseased_section_FFPE_outs.h5ad --erda
+
+#Xenium_V1_hLiver_cancer_section_FFPE_outs
+# python h5toloader.py --data_path /tmp/erda/Spatialformer/downloaded_data/processed/Xenium_V1_hLiver_cancer_section_FFPE_outs.h5ad --erda
+
+#Xenium_V1_hHeart_nondiseased_section_FFPE_outs
+#python h5toloader.py --data_path /tmp/erda/Spatialformer/downloaded_data/processed/Xenium_V1_hHeart_nondiseased_section_FFPE_outs.h5ad --erda
+
+#Xeniumranger_V1_hSkin_Melanoma_Add_on_FFPE_outs
+# python h5toloader.py --data_path /tmp/erda/Spatialformer/downloaded_data/processed/Xeniumranger_V1_hSkin_Melanoma_Add_on_FFPE_outs.h5ad --erda
+
+#Xenium_V1_hSkin_Melanoma_Base_FFPE_outs
+# python h5toloader.py --data_path /tmp/erda/Spatialformer/downloaded_data/processed/Xenium_V1_hSkin_Melanoma_Base_FFPE_outs.h5ad --erda
+
+#Xenium_V1_hColon_Non_diseased_Base_FFPE_outs
+# python h5toloader.py --data_path /tmp/erda/Spatialformer/downloaded_data/processed/Xenium_V1_hColon_Non_diseased_Base_FFPE_outs.h5ad --erda
+
+#Xenium_V1_hColon_Non_diseased_Add_on_FFPE_outs
+# python h5toloader.py --data_path /tmp/erda/Spatialformer/downloaded_data/processed/Xenium_V1_hColon_Non_diseased_Add_on_FFPE_outs.h5ad --erda
+
+#Xenium_V1_hColon_Cancer_Base_FFPE_outs
+# python h5toloader.py --data_path /tmp/erda/Spatialformer/downloaded_data/processed/Xenium_V1_hColon_Cancer_Base_FFPE_outs.h5ad --erda
+
+#Xenium_V1_hLung_cancer_section_outs
+# python h5toloader.py --data_path /tmp/erda/Spatialformer/downloaded_data/processed/Xenium_V1_hLung_cancer_section_outs.h5ad --erda
+
+#Xenium_V1_hLymphNode_nondiseased_section_outs
+# python h5toloader.py --data_path /tmp/erda/Spatialformer/downloaded_data/processed/Xenium_V1_hLymphNode_nondiseased_section_outs.h5ad --erda
+
+#Xenium_V1_humanLung_Cancer_FFPE_outs
+# python h5toloader.py --data_path /tmp/erda/Spatialformer/downloaded_data/processed/Xenium_V1_humanLung_Cancer_FFPE_outs.h5ad --erda
+
+#Xenium_V1_Human_Ovarian_Cancer_Addon_FFPE_outs
+# python h5toloader.py --data_path /tmp/erda/Spatialformer/downloaded_data/processed/Xenium_V1_Human_Ovarian_Cancer_Addon_FFPE_outs.h5ad --erda
+
+#Xenium_V1_Human_Lung_Cancer_Addon_FFPE_outs
+# python h5toloader.py --data_path /tmp/erda/Spatialformer/downloaded_data/processed/Xenium_V1_Human_Lung_Cancer_Addon_FFPE_outs.h5ad --erda
+
+#Xenium_V1_Human_Ductal_Adenocarcinoma_FFPE_outs
+# python h5toloader.py --data_path /tmp/erda/Spatialformer/downloaded_data/processed/Xenium_V1_Human_Ductal_Adenocarcinoma_FFPE_outs.h5ad --erda
+
+#Xenium_V1_Human_Colorectal_Cancer_Addon_FFPE_outs
+# python h5toloader.py --data_path /tmp/erda/Spatialformer/downloaded_data/processed/Xenium_V1_Human_Colorectal_Cancer_Addon_FFPE_outs.h5ad --erda
+
+#Xenium_V1_hBoneMarrow_acute_lymphoid_leukemia_section_outs
+# python h5toloader.py --data_path /tmp/erda/Spatialformer/downloaded_data/processed/Xenium_V1_hBoneMarrow_acute_lymphoid_leukemia_section_outs.h5ad --erda
+
+# Xenium_V1_FFPE_Human_Breast_IDC_Big_1_outs
+# python h5toloader.py --data_path /tmp/erda/Spatialformer/downloaded_data/processed/Xenium_V1_FFPE_Human_Breast_IDC_Big_1_outs.h5ad --erda
+
+#Xenium_V1_FFPE_Human_Breast_IDC_Big_2_outs
+# python h5toloader.py --data_path /tmp/erda/Spatialformer/downloaded_data/processed/Xenium_V1_FFPE_Human_Breast_IDC_Big_2_outs.h5ad --erda
+
+#Xenium_V1_FFPE_Human_Breast_IDC_With_Addon_outs
+# python h5toloader.py --data_path /tmp/erda/Spatialformer/downloaded_data/processed/Xenium_V1_FFPE_Human_Breast_IDC_With_Addon_outs.h5ad --erda
+
+#Xenium_V1_FFPE_Human_Breast_ILC_With_Addon_outs
+# python h5toloader.py --data_path /tmp/erda/Spatialformer/downloaded_data/processed/Xenium_V1_FFPE_Human_Breast_ILC_With_Addon_outs.h5ad --erda
+
+#Xenium_V1_FFPE_Human_Breast_IDC_outs
+# python h5toloader.py --data_path /tmp/erda/Spatialformer/downloaded_data/processed/Xenium_V1_FFPE_Human_Breast_IDC_outs.h5ad --erda
+
+#Xenium_V1_FFPE_Human_Breast_ILC_outs
+# python h5toloader.py --data_path /tmp/erda/Spatialformer/downloaded_data/processed/Xenium_V1_FFPE_Human_Breast_ILC_outs.h5ad --erda
+
+#Xenium_V1_hPancreas_nondiseased_section_outs
+# python h5toloader.py --data_path /tmp/erda/Spatialformer/downloaded_data/processed/Xenium_V1_hPancreas_nondiseased_section_outs.h5ad --erda
+
+#Xenium_V1_hKidney_nondiseased_section_outs
+# python h5toloader.py --data_path /tmp/erda/Spatialformer/downloaded_data/processed/Xenium_V1_hKidney_nondiseased_section_outs.h5ad --erda
+
+#Xenium_V1_hKidney_cancer_section_outs
+# python h5toloader.py --data_path /tmp/erda/Spatialformer/downloaded_data/processed/Xenium_V1_hKidney_cancer_section_outs.h5ad --erda
+
+#Xenium_V1_hColon_Cancer_Add_on_FFPE_outs
+# python h5toloader.py --data_path /tmp/erda/Spatialformer/downloaded_data/processed/Xenium_V1_hColon_Cancer_Add_on_FFPE_outs.h5ad --erda
+
+#Xenium_V1_hTonsil_reactive_follicular_hyperplasia_section_FFPE_outs
+# python h5toloader.py --data_path /tmp/erda/Spatialformer/downloaded_data/processed/Xenium_V1_hTonsil_reactive_follicular_hyperplasia_section_FFPE_outs.h5ad --erda
+
+#Xenium_Preview_Human_Lung_Cancer_With_Add_on_2_FFPE_outs
+# python h5toloader.py --data_path /tmp/erda/Spatialformer/downloaded_data/processed/Xenium_Preview_Human_Lung_Cancer_With_Add_on_2_FFPE_outs.h5ad --erda

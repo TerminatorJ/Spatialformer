@@ -219,8 +219,8 @@ def coo_to_binary_matrix(group_shape, data, row, col):
     return binary_matrix
 
 def read_h5(file_object, cell_id):
-    # print("running the cell_id:", cell_id)
     # Get the data
+    # import pdb; pdb.set_trace()
     grp = file_object[cell_id]
     grp_shape = grp.attrs["shape"]
     row = grp['row'][:]

@@ -1,0 +1,1 @@
+python find_gene_interaction.py --transcript_file /tmp/erda/Spatialformer/downloaded_data/raw/Xenium_Preview_Human_Lung_Cancer_With_Add_on_2_FFPE_outs/transcripts.csv.gz --number_cell 531165 --partition 13 --dataname Xenium_Preview_Human_Lung_Cancer_With_Add_on_2_FFPE_outs;

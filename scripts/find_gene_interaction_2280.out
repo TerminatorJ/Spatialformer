@@ -1,0 +1,34 @@
+fusermount: entry for /tmp/erda not found in /etc/mtab
+total 20
+drwxr-xr-x.   2 sxr280 users     6 Oct  2 23:07 .
+drwxrwxrwt. 183 root   root  16384 Oct 10 00:12 ..
+The directory '/tmp/erda' contains 1 files.
+Running command: python find_gene_interaction.py --transcript_file /tmp/erda/Spatialformer/downloaded_data/raw/Xenium_V1_hKidney_nondiseased_section_outs/transcripts.csv.gz --number_cell 97560 --partition 5 --dataname Xenium_V1_hKidney_nondiseased_section_outs;
+2024-10-10 00:14:08,301 - INFO - The number of cells that are kept: 79174
+2024-10-10 00:14:08,302 - INFO - Mean transcripts per cell: 94.02532396999015
+2024-10-10 00:14:08,302 - INFO - Total transcripts left: 7444361
+2024-10-10 00:14:08,494 - INFO - Gene number after filtering: 377
+2024-10-10 00:14:08,768 - INFO - total partitions you need are: 4
+0it [00:00, ?it/s]0it [00:00, ?it/s]
+/home/sxr280/miniconda3/envs/deeploc_torch/lib/python3.8/site-packages/numpy/core/fromnumeric.py:3474: RuntimeWarning: Mean of empty slice.
+  return _methods._mean(a, axis=axis, dtype=dtype,
+/home/sxr280/miniconda3/envs/deeploc_torch/lib/python3.8/site-packages/numpy/core/_methods.py:189: RuntimeWarning: invalid value encountered in double_scalars
+  ret = ret.dtype.type(ret / rcount)
+2024-10-10 00:14:09,338 - INFO - mean number of the pairs is: nan
+2024-10-10 00:14:09,338 - INFO - median number of the pairs is: nan
+2024-10-10 00:14:09,352 - INFO - Processing completed. Success: 0, Failure: 0
+Running command: python find_gene_interaction.py --transcript_file /tmp/erda/Spatialformer/downloaded_data/raw/Xenium_V1_hKidney_nondiseased_section_outs/transcripts.csv.gz --number_cell 97560 --partition 6 --dataname Xenium_V1_hKidney_nondiseased_section_outs;
+2024-10-10 00:14:26,188 - INFO - The number of cells that are kept: 79174
+2024-10-10 00:14:26,189 - INFO - Mean transcripts per cell: 94.02532396999015
+2024-10-10 00:14:26,189 - INFO - Total transcripts left: 7444361
+2024-10-10 00:14:26,383 - INFO - Gene number after filtering: 377
+2024-10-10 00:14:26,651 - INFO - total partitions you need are: 4
+0it [00:00, ?it/s]0it [00:00, ?it/s]
+/home/sxr280/miniconda3/envs/deeploc_torch/lib/python3.8/site-packages/numpy/core/fromnumeric.py:3474: RuntimeWarning: Mean of empty slice.
+  return _methods._mean(a, axis=axis, dtype=dtype,
+/home/sxr280/miniconda3/envs/deeploc_torch/lib/python3.8/site-packages/numpy/core/_methods.py:189: RuntimeWarning: invalid value encountered in double_scalars
+  ret = ret.dtype.type(ret / rcount)
+2024-10-10 00:14:27,191 - INFO - mean number of the pairs is: nan
+2024-10-10 00:14:27,191 - INFO - median number of the pairs is: nan
+2024-10-10 00:14:27,201 - INFO - Processing completed. Success: 0, Failure: 0
+fusermount: failed to unmount /tmp/erda: Device or resource busy

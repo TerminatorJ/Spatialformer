@@ -18,7 +18,7 @@ import os
 import json
 import argparse
 from datasets import load_from_disk
-from torch.utils.data import ConcatDataset
+from torch.utils.data import ConcatDataset, Sampler, IterableDataset
 from utils import uniform_quantile_global, binning
 current_file_path = Path(__file__).resolve()
 p_path = current_file_path.parents[1]
@@ -227,6 +227,27 @@ def get_rank_exp(raw_genes, raw_exps, ranked_genes):
         ranked_exp.append(torch.tensor(exp_values))
     return ranked_exp
 
+class FilteredSampler(Sampler):
+    def __init__(self, dataset):
+        self.indices = [idx for idx in range(len(dataset)) if np.array(dataset[idx]['Gene_Gene_Matrix']).sum() != 0]
+
+    def __iter__(self):
+        return iter(self.indices)
+
+    def __len__(self):
+        return len(self.indices)
+
+class filterdataset(IterableDataset):
+    def __init__(self, dataset):
+        self.dataset = dataset
+
+    def __iter__(self):
+        for item in self.dataset:
+            # Check if the sum of 'adjmtx' is zero
+            if np.array(item['Gene_Gene_Matrix']).sum() != 0:
+                yield item  
+            else:
+                pass
 
 def create_data_loaders(tokenized_datasets, batch_size=1, context_length=1500, special_token_num = 4, split_num = 2, directionality = True, n_bins = 51):
     '''
@@ -284,26 +305,19 @@ def create_data_loaders(tokenized_datasets, batch_size=1, context_length=1500, s
 
 
             norm_exp = torch.full((len(ranked_exp), self.context_length), self.padding_idx, dtype=torch.float)
-            # nuc_exp = torch.full((len(rank_nuc_pct), self.context_length), self.padding_idx, dtype=torch.float)
-            # cyto_exp = torch.full((len(rank_nuc_pct), self.context_length), self.padding_idx, dtype=torch.float)
-            for i, e in enumerate(ranked_exp):
-                # import pdb; pdb.set_trace()
-                e = binning(
-                    row=e,
-                    n_bins=n_bins,
-                )
-                # import pdb; pdb.set_trace()
-                #e already 0-1
-                # nuc_e = e*rank_nuc_pct[i]
-                # import pdb; pdb.set_trace()
-                # cyto_e = (1-rank_nuc_pct[i])*e
-                
-                norm_exp[i,self.special_token_num:self.special_token_num+e.size(0)] = e
-                # nuc_exp[i,self.special_token_num:self.special_token_num+nuc_e.size(0)] = nuc_e
-                # cyto_exp[i,self.special_token_num:self.special_token_num+cyto_e.size(0)] = cyto_e
-                # import pdb; pdb.set_trace()
+            try:
+                for i, e in enumerate(ranked_exp):
+                    # import pdb; pdb.set_trace()
+                    e = binning(
+                        row=e,
+                        n_bins=n_bins,
+                    )
 
-            # import pdb; pdb.set_trace()
+                    norm_exp[i,self.special_token_num:self.special_token_num+e.size(0)] = e
+            except:
+                import pdb; pdb.set_trace()
+                pass
+
             # Pad sequences
             attention_masks = (full_tokens != self.padding_idx).bool()
 
@@ -313,14 +327,7 @@ def create_data_loaders(tokenized_datasets, batch_size=1, context_length=1500, s
             for i, mat in enumerate(gg_mtx):
                 current_size = mat.shape[0]
                 gg_mtx_p[i, self.special_token_num:(current_size+self.special_token_num), self.special_token_num:(self.special_token_num+current_size)] = mat
-            # print("before:",gg_mtx_p[0])
-            # dis_mtx_p = torch.full((len(dis_mtx), self.context_length, self.context_length), self.padding_idx, dtype=torch.float)
-            # for i, mat in enumerate(dis_mtx):
-            #     current_size = mat.shape[0]
-            #     norm_mat = uniform_quantile_global(mat)
-            #     # norm_mat = uniform_quantile_global(mat)
-            #     dis_mtx_p[i, self.special_token_num:(current_size+self.special_token_num), self.special_token_num:(self.special_token_num+current_size)] = norm_mat
-            # import pdb; pdb.set_trace()
+
             if not directionality:
                 rows_with_ones = torch.any(gg_mtx_p == 1, dim=2)
                 cols_with_ones = torch.any(gg_mtx_p == 1, dim=1)
@@ -332,24 +339,16 @@ def create_data_loaders(tokenized_datasets, batch_size=1, context_length=1500, s
                 # Set the entire row and column to 1 if there is at least one 1
                 gg_mtx_p = torch.logical_or(rows_with_ones, cols_with_ones)
                 gg_mtx_p = gg_mtx_p.int()
-            # import pdb; pdb.set_trace()
-            # dis_mtx_p = torch.rand(0,1,size = (self.context_length, self.context_length), device = gg_mtx_p.device)
-            # dis_mtx_p.expaned(len(gg_mtx), dim = 0)
-            # print("after:",gg_mtx_p[0])
-            # import pdb; pdb.set_trace()
+
             return {
                 'adjmtx': gg_mtx_p,
                 'indices': full_tokens,
                 'attention_mask': attention_masks,
                 'normalized_exp': norm_exp,
-                # 'distance_mat': dis_mtx_p,
-                # "nuc_exp":  nuc_exp,
-                # "cyto_exp": cyto_exp,
-                # "annotation": annotation,
-                # "niche_annotation":niche_annotation,
                 "Expression": full_exp
 
             }
+    
 
     data_collator = CustomDataCollator(context_length, padding_idx=0)
     if split_num == 2:

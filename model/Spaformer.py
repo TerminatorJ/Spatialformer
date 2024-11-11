@@ -23,6 +23,14 @@ import pickle
 MASK_TOKEN = 2
 CLS_TOKEN = 1
 PAD_TOKEN = 0
+def to_cpu(data):
+    if isinstance(data, torch.Tensor):
+        return data.detach().cpu()
+    elif isinstance(data, list):
+        return [to_cpu(item) for item in data]
+    elif isinstance(data, dict):
+        return {key: to_cpu(value) for key, value in data.items()}
+    return data
 
 class MaskedMSELoss(nn.Module):
     def __init__(self, mask_way = "MT", n_token = None):
@@ -37,7 +45,6 @@ class MaskedMSELoss(nn.Module):
 
     def forward(self, input: torch.Tensor, target: torch.Tensor, exp: torch.Tensor) -> torch.Tensor:
         # Here, the mask represents the masked tokens (with value != -100)
-        # import pdb; pdb.set_trace()
         mask = target != -100  # Boolean mask where True indicates valid (non-masked) positions
         # Filter target and input tensors using the mask
         valid_target = target[mask]
@@ -45,8 +52,6 @@ class MaskedMSELoss(nn.Module):
         valid_input = input[mask]  # Shape (valid_batch, dim)
         # Ensure valid_target is in the correct shape for gather
         valid_target = valid_target.unsqueeze(1)  # Shape (valid_batch, 1)
-
-
 
         if self.mask_way == "ME":
             # Use gather to select the relevant predictions based on valid_target
@@ -57,13 +62,16 @@ class MaskedMSELoss(nn.Module):
             mask_num = mask.sum().float()
             loss = loss / mask_num
         elif self.mask_way == "MT":
-            # import pdb; pdb.set_trace()
-            # preds = valid_input[valid_target]  # Shape (valid_batch,)
-
-            loss = self.loss(input, target)
-
-        
-
+            try:
+                loss = self.loss(input, target)
+                if torch.isnan(loss) or torch.isinf(loss):
+                    print("input:", input)
+                    print("target:", target)
+                    raise ValueError("Loss is NaN or Inf")
+                    
+            except:
+                print("Loss computation failed, assigning default loss value.")
+                loss = torch.tensor(5, device=input.device)
         return loss
     
 class MaskedMSE2DLoss(nn.Module):
@@ -73,7 +81,6 @@ class MaskedMSE2DLoss(nn.Module):
 
     def even_sample(self, pred, target):
         # Flatten matrices for easier indexing
-        # import pdb; pdb.set_trace()
         predictions_flat = pred.view(-1)
         true_labels_flat = target.view(-1)
         
@@ -86,7 +93,6 @@ class MaskedMSE2DLoss(nn.Module):
         selected_pos_indices = torch.randperm(len(positive_indices))[:num_samples]
         selected_neg_indices = torch.randperm(len(negative_indices))[:num_samples]
 
-        
         sampled_indices = torch.cat((positive_indices[selected_pos_indices], negative_indices[selected_neg_indices]))
         
         # Calculate loss using sampled indices
@@ -105,13 +111,26 @@ class MaskedMSE2DLoss(nn.Module):
         if self.sample_balance:
             valid_input, valid_target = self.even_sample(valid_input, valid_target)
             mask_num = len(valid_target)
-            loss = F.binary_cross_entropy_with_logits(valid_input, valid_target.float(), reduction='sum')
+            try:
+                loss = F.binary_cross_entropy_with_logits(valid_input, valid_target.float(), reduction='sum')
+                spa_loss = loss / mask_num
+                if torch.isnan(loss) or torch.isinf(loss):
+                    print("valid_input:", valid_input)
+                    print("valid_target:", valid_target)
+                    raise ValueError("Loss is NaN or Inf")
+            except:
+                print("Loss computation failed, assigning default loss value.")
+                spa_loss = torch.tensor(0.5, device=valid_input.device)
+
+                # loss = torch.tensor(0.5, device=valid_input.device)  # Use an appropriate default
+                # loss = F.binary_cross_entropy_with_logits(valid_input, valid_target.float(), reduction='sum')
             # import pdb; pdb.set_trace()
         else:
             loss = nn.CrossEntropyLoss(valid_input, valid_target.float(), reduction='sum')
             # Normalize by the number of valid elements
             mask_num = mask.sum().float()
-        return loss / mask_num
+            spa_loss = loss / mask_num
+        return spa_loss
 
     
 class AdjacencyProjector(nn.Module):
@@ -121,7 +140,6 @@ class AdjacencyProjector(nn.Module):
         self.fc = nn.Linear(2 * embedding_dim, 1, bias=False)
 
     def forward(self, E):
-        # import pdb; pdb.set_trace()
         #B x L X dim
         num_genes = E.size(1)
         # Create pairwise combinations
@@ -135,18 +153,14 @@ class AdjacencyProjector(nn.Module):
 
 
 class GraphSAGESpatialEmbedding(nn.Module):
-    def __init__(self, freeze):
+    def __init__(self, freeze, embedding_path):
         super().__init__()
-        pretrained_weights = pickle.load(open("/home/sxr280/Spatialformer/data/gene_embeddings_GraphSAGE.pkl", "rb"))
+        pretrained_weights = pickle.load(open(embedding_path, "rb"))
         self.emb = nn.Embedding.from_pretrained(pretrained_weights, freeze=freeze)
         print("require grad:", self.emb.weight.requires_grad)
 
     def forward(self, x):
-        # self.emb(x)
-        # import pdb; pdb.set_trace()
-        # t = torch.arange(x.shape[1], device=x.device)
         return self.emb(x)
-
 
 
 class Spaformer(pl.LightningModule):
@@ -164,10 +178,6 @@ class Spaformer(pl.LightningModule):
                  warmup: int, 
                  max_epochs: int,
                  pool: str = None,
-                 learnable_pe: bool = True,
-                 specie: bool = False,
-                 assay: bool = False,
-                 modality: bool = False,
                  bpp: bool = True,
                  bpp_scale: int = None,
                  ag_loss: bool = False,
@@ -187,16 +197,9 @@ class Spaformer(pl.LightningModule):
             warmup (int): number of steps that the warmup takes
             max_epochs (int): number of steps until the learning rate reaches 0
             pool (str): could be None, 'cls' or 'mean'. CLS adds a token at the beginning, mean just averages all tokens. If not supervised task during training, is ignored
-            learnable_pe (bool): if True, positional embeddings are learnable embeddings, otherwise are derived from trigonometric functions
-            specie (bool): if True, add a token to identify the specie of the observation (human or mouse)
-            assay (bool): if True, add a token to identify the assay of the observations 
-            modality (bool): if True, add a token to identify the modality of the observations (spatial or dissociated)
             outer_config (dict): the overall config of the model for training
         """
         super().__init__()
-        # import pdb; pdb.set_trace()
-        # self.encoder_layer = nn.TransformerEncoderLayer(d_model=dim_model, nhead=nheads, dim_feedforward=dim_feedforward, batch_first=batch_first, dropout=dropout, layer_norm_eps=1e-12)
-        # self.encoder = nn.TransformerEncoder(encoder_layer=self.encoder_layer, num_layers=nlayers, enable_nested_tensor=False)
         self.encoder = SpaEncoder(dim=dim_model , num_layers=nlayers, groups=dim_model, num_heads=nheads, bpp_size = context_length, bpp = bpp, bpp_scale=bpp_scale)
         # As in HuggingFace
         # The prediction head for each masked token
@@ -208,33 +211,18 @@ class Spaformer(pl.LightningModule):
         self.classifier_head.bias =  bias
             
         # As in HuggingFace
-        # self.pooler_head = nn.Linear(dim_model, dim_model)
         self.activation = nn.Tanh()
 
         self.embeddings = nn.Embedding(num_embeddings=n_tokens+n_atokens, embedding_dim=dim_model, padding_idx=0)
 
         #loading the pretrained embeddings
-        # import pdb; pdb.set_trace()
         if outer_config["spatial_embedding"]:
-            self.spatialembeds = GraphSAGESpatialEmbedding(outer_config["spatial_embedding_freeze"])
-       
-           
+            self.spatialembeds = GraphSAGESpatialEmbedding(outer_config["spatial_embedding_freeze"], outer_config["embedding_path"])
 
-
-        
         if pool == 'cls':
             context_length += 1
-            
-        # if not learnable_pe:
-        #     self.positional_embedding = PositionalEncoding(d_model=dim_model, max_seq_len=context_length)
-        # else:
-        #     # uses learnable weights as positional embeddings
-        #     self.positional_embedding = nn.Embedding(num_embeddings=context_length, embedding_dim=dim_model) 
-        #     self.dropout = nn.Dropout(p=dropout)
-        #     self.pos = torch.arange(0, context_length, dtype=torch.long)
-        
+
         # MLM loss
-        # self.loss = nn.CrossEntropyLoss()
         self.MEloss = MaskedMSELoss(mask_way = mask_way, n_token = n_tokens+n_atokens)#masked expression level loss
         self.MDloss = MaskedMSE2DLoss(sample_balance = True)
             
@@ -250,7 +238,6 @@ class Spaformer(pl.LightningModule):
         
         self.batch_train_losses = []
         
-        # self.initialize_weights()
         self.batch_input = {}
         self.total_tokens = 0
         self.adjmtx = None
@@ -259,6 +246,9 @@ class Spaformer(pl.LightningModule):
         self.outer_config = outer_config
         self.ag_loss = ag_loss
         self.setup_sigma()
+        self.last_train_loss = None
+        self.last_val_loss = None
+        self.mask_way = mask_way
         
 
 
@@ -266,22 +256,19 @@ class Spaformer(pl.LightningModule):
     def forward(self, x, adjmtx, attention_mask, **kwargs):
                 
         # x -> size: batch x (context_length) x 1
-        # import pdb; pdb.set_trace()
         self.adjmtx = adjmtx
         token_embedding = self.embeddings(x) # batch x (context_length) x dim_model
         if self.outer_config["spatial_embedding"]:
-            # import pdb; pdb.set_trace()
             token_embedding += self.spatialembeds(x)
+        # import pdb; pdb.set_trace()
         transformer_output, attn_scores = self.encoder(token_embedding, adjmtx, attention_mask) # batch x (n_tokens) x dim_model
-        # 
-        # MLM prediction
-        
+            
         #get the last layer of the model output
         prediction = self.classifier_head(transformer_output[-1])
         #get the pair-wise gene-gene interaction matrix
         dis_prediction = self.adjprojector(token_embedding)
         self.attentions = attn_scores
-        # import pdb; pdb.set_trace()
+
         return {'mlm_prediction': prediction,
                 'transformer_output': transformer_output,
                 'attention_score': attn_scores,
@@ -340,75 +327,104 @@ class Spaformer(pl.LightningModule):
         return normalized_weights
     
     def training_step(self, batch, batch_idx, *args, **kwargs):
+        #skip the None batch, which means the gene-gene matrix is sum as 0
         torch.cuda.synchronize()
         mem_before = torch.cuda.memory_allocated()
         # Training code
-        if self.outer_config["mini_batch"]:
-            mini_batch_list = self.mini_batch_setup(batch)    
-            # import pdb; pdb.set_trace()
-            total_loss = torch.tensor(0, dtype=torch.float, device=self.device)
-            target_dict = {0: "normalized_exp", 1: "nuc_exp", 2: "cyto_exp"}
-            for i, exp_batch in enumerate(mini_batch_list[:-1]): #make sure the last one is the spatial mini batch
-                # import pdb; pdb.set_trace()
-                mlm_predictions, target, real_indices, attention_mask = self.predict_exp(exp_batch, target_dict[i]) #different task means different targets here
-                MLM_loss = self.MEloss(mlm_predictions, real_indices, target) # MLM loss by MSE
-                if self.outer_config["weight_strategy"] == "DWA":
-                    
-                    self.log(f'train_MLM_loss({target_dict[i]})', MLM_loss, sync_dist=True, prog_bar=False, reduce_fx='mean')
-                elif self.outer_config["weight_strategy"] == "UW":
-                    self.log(f'train_MLM_loss({target_dict[i]})', MLM_loss, sync_dist=True, prog_bar=False, reduce_fx='mean')
-                    log_sigma = getattr(self, f'log_sigma_reg{i+1}')[0]
-                    self.log(f'log_sigma_reg({target_dict[i]}))', log_sigma, sync_dist=True, prog_bar=True, reduce_fx='mean')
-                    # self.log(f'val_MLM_loss({target_dict[i]})', MLM_loss, sync_dist=True, prog_bar=False, reduce_fx='mean')
-                    total_loss += (torch.exp(-log_sigma) * MLM_loss + log_sigma)
-            
+        try:
+            if self.outer_config["mini_batch"]:
+                mini_batch_list = self.mini_batch_setup(batch)    
+                total_loss = torch.tensor(0, dtype=torch.float, device=self.device)
+                target_dict = {0: "normalized_exp", 1: "nuc_exp", 2: "cyto_exp"}
+                for i, exp_batch in enumerate(mini_batch_list[:-1]): #make sure the last one is the spatial mini batch
+                    # exp_batch
+                    mlm_predictions, target, real_indices, attention_mask = self.predict_exp(exp_batch, target_dict[i]) #different task means different targets here
+                    # print("mlm_predictions",mlm_predictions)
+                    MLM_loss = self.MEloss(mlm_predictions, real_indices, target) # MLM loss by MSE
+                    if self.outer_config["weight_strategy"] == "DWA":
+                        
+                        self.log(f'train_MLM_loss({target_dict[i]})', MLM_loss, sync_dist=True, prog_bar=False, reduce_fx='mean')
+                    elif self.outer_config["weight_strategy"] == "UW":
+                        self.log(f'train_MLM_loss({target_dict[i]})', MLM_loss, sync_dist=True, prog_bar=False, reduce_fx='mean')
+                        log_sigma = getattr(self, f'log_sigma_reg{i+1}')[0]
+                        self.log(f'log_sigma_reg({target_dict[i]})', log_sigma, sync_dist=True, prog_bar=True, reduce_fx='mean')
+                        # self.log(f'val_MLM_loss({target_dict[i]})', MLM_loss, sync_dist=True, prog_bar=False, reduce_fx='mean')
+                        total_loss += (torch.exp(-log_sigma) * MLM_loss + log_sigma)
+                
 
-            # import pdb; pdb.set_trace()
-            spa_batch = mini_batch_list[-1]
-            spa_predictions, adjmtx = self.predict_spa(spa_batch)
-            Spa_loss = self.MDloss(spa_predictions, adjmtx)# spatial loss
-            if self.outer_config["weight_strategy"] == "DWA":
-                self.log('train_Spa_loss', Spa_loss, sync_dist=True, prog_bar=False, reduce_fx='mean')
-                # Calculate dynamic weights
-                weights = self.dynamic_weight_average([MLM_loss, Spa_loss], 2)
-
-                # Weighted multi-task loss
-                total_loss = weights[0] * MLM_loss + weights[1] * Spa_loss
-                self.log('train_total_loss', total_loss, sync_dist=True, prog_bar=True, reduce_fx='mean')
-            elif self.outer_config["weight_strategy"] == "UW":
-                self.log('train_Spa_loss', Spa_loss, sync_dist=True, prog_bar=False, reduce_fx='mean')
-                total_loss += (torch.exp(-self.log_sigma_class[0]) * Spa_loss * self.linear_schedule_for_scale() + self.log_sigma_class[0])
-                self.log('log_sigma_class', self.log_sigma_class[0], sync_dist=True, prog_bar=True, reduce_fx='mean')
-                self.log('train_total_loss', total_loss, sync_dist=True, prog_bar=True, reduce_fx='mean')
-
-        else:
-            total_loss = torch.tensor(0, dtype=torch.float, device=self.device)
-            if self.outer_config["objective"] == "normalized_exp":
-                batch = complete_masking(batch, self.hparams.masking_p, self.hparams.n_tokens) #for mask expression prediction
-                mlm_predictions, target, real_indices, attention_mask = self.predict_exp(batch, "normalized_exp") 
-                MLM_loss = self.MEloss(mlm_predictions, real_indices, target) # MLM loss
-                self.log('train_MLM_loss(normalized_exp)', MLM_loss, sync_dist=True, prog_bar=False, reduce_fx='mean')
-                self.log('train_total_loss', MLM_loss, sync_dist=True, prog_bar=True, reduce_fx='mean')
-                total_loss += MLM_loss
-            elif self.outer_config["objective"] == "spatial":
-                spa_predictions, adjmtx = self.predict_spa(batch)
+                spa_batch = mini_batch_list[-1]
+                spa_predictions, adjmtx = self.predict_spa(spa_batch)
                 Spa_loss = self.MDloss(spa_predictions, adjmtx)# spatial loss
-                attention_mask = batch['attention_mask']
-                self.log('train_Spa_loss', Spa_loss, sync_dist=True, prog_bar=False, reduce_fx='mean')
-                self.log('train_total_loss', Spa_loss, sync_dist=True, prog_bar=True, reduce_fx='mean')
-                total_loss += Spa_loss
-        # There's a corner case that returns NaN loss: when there are no masked tokens
-        # however, likelihood of that is (1-p)^context_length
+                if self.outer_config["weight_strategy"] == "DWA":
+                    self.log('train_Spa_loss', Spa_loss, sync_dist=True, prog_bar=False, reduce_fx='mean')
+                    # Calculate dynamic weights
+                    weights = self.dynamic_weight_average([MLM_loss, Spa_loss], 2)
 
-        #getting the total tokens
+                    # Weighted multi-task loss
+                    total_loss = weights[0] * MLM_loss + weights[1] * Spa_loss
+                    self.log('train_total_loss', total_loss, sync_dist=True, prog_bar=True, reduce_fx='mean')
+                elif self.outer_config["weight_strategy"] == "UW":
+                    self.log('train_Spa_loss', Spa_loss, sync_dist=True, prog_bar=False, reduce_fx='mean')
+                    total_loss += (torch.exp(-self.log_sigma_class[0]) * Spa_loss * self.linear_schedule_for_scale() + self.log_sigma_class[0])
+                    self.log('log_sigma_class', self.log_sigma_class[0], sync_dist=True, prog_bar=True, reduce_fx='mean')
+                    self.log('train_total_loss', total_loss, sync_dist=True, prog_bar=True, reduce_fx='mean')
 
-        self.total_tokens += attention_mask.sum()
-        self.log('total_tokens', self.total_tokens, prog_bar=True)
+            else:
+                total_loss = torch.tensor(0, dtype=torch.float, device=self.device)
+                if self.outer_config["objective"] == "normalized_exp":
+                    batch = complete_masking(batch, self.hparams.masking_p, self.hparams.n_tokens) #for mask expression prediction
+                    mlm_predictions, target, real_indices, attention_mask = self.predict_exp(batch, "normalized_exp") 
+                    MLM_loss = self.MEloss(mlm_predictions, real_indices, target) # MLM loss
+                    self.log('train_MLM_loss(normalized_exp)', MLM_loss, sync_dist=True, prog_bar=False, reduce_fx='mean')
+                    self.log('train_total_loss', MLM_loss, sync_dist=True, prog_bar=True, reduce_fx='mean')
+                    total_loss += MLM_loss
+                elif self.outer_config["objective"] == "spatial":
+                    spa_predictions, adjmtx = self.predict_spa(batch)
+                    Spa_loss = self.MDloss(spa_predictions, adjmtx)# spatial loss
+                    attention_mask = batch['attention_mask']
+                    self.log('train_Spa_loss', Spa_loss, sync_dist=True, prog_bar=False, reduce_fx='mean')
+                    self.log('train_total_loss', Spa_loss, sync_dist=True, prog_bar=True, reduce_fx='mean')
+                    total_loss += Spa_loss
+            # There's a corner case that returns NaN loss: when there are no masked tokens
+            # however, likelihood of that is (1-p)^context_length
 
-        mem_after = torch.cuda.memory_allocated()
-        print(f"GPU memory usage: {mem_before/1e9} GB -> {mem_after/1e9} GB")               
-       
-        return total_loss
+            #getting the total tokens
+
+            self.total_tokens += attention_mask.sum()
+            self.log('total_tokens', self.total_tokens, prog_bar=True)
+        
+            mem_after = torch.cuda.memory_allocated()
+            # print(f"GPU memory usage: {mem_before/1e9} GB -> {mem_after/1e9} GB") 
+            self.last_train_loss = total_loss.item()  
+            # Check for NaN loss
+            if torch.isnan(total_loss) or torch.isinf(total_loss):
+            
+            # if torch.isnan(total_loss).any():
+            #     #save everything
+                pickle.dump(to_cpu(batch), open("/scratch/project_465001027/Spatialformer/data/nanbatch.pkl", "wb"))
+                pickle.dump(to_cpu(mini_batch_list), open("/scratch/project_465001027/Spatialformer/data/minibatchlist.pkl", "wb"))
+                pickle.dump(to_cpu(mlm_predictions), open("/scratch/project_465001027/Spatialformer/data/mlm_predictions.pkl", "wb"))
+                pickle.dump(to_cpu(target), open("/scratch/project_465001027/Spatialformer/data/target.pkl", "wb"))
+                pickle.dump(to_cpu(real_indices), open("/scratch/project_465001027/Spatialformer/data/real_indices.pkl", "wb"))
+                pickle.dump(to_cpu(attention_mask), open("/scratch/project_465001027/Spatialformer/data/attention_mask.pkl", "wb"))
+                pickle.dump(to_cpu(MLM_loss), open("/scratch/project_465001027/Spatialformer/data/MLM_loss.pkl", "wb"))
+                pickle.dump(to_cpu(log_sigma), open("/scratch/project_465001027/Spatialformer/data/log_sigma.pkl", "wb"))
+                pickle.dump(to_cpu(spa_predictions), open("/scratch/project_465001027/Spatialformer/data/spa_predictions.pkl", "wb"))
+                pickle.dump(to_cpu(adjmtx), open("/scratch/project_465001027/Spatialformer/data/adjmtx.pkl", "wb"))
+                pickle.dump(to_cpu(Spa_loss), open("/scratch/project_465001027/Spatialformer/data/Spa_loss.pkl", "wb"))
+                pickle.dump(to_cpu(self.log_sigma_class[0]), open("/scratch/project_465001027/Spatialformer/data/log_sigma_class.pkl", "wb"))
+                pickle.dump(to_cpu(self.linear_schedule_for_scale()), open("/scratch/project_465001027/Spatialformer/data/linear_schedule_for_scale.pkl", "wb"))
+                raise ValueError(f"NaN or Inf loss detected on batch index {batch_idx}.")
+        except ValueError as e:
+            print(f"Stopping training due to: {e}")
+            # This could stop the training loop
+            raise 
+
+
+
+        return total_loss           
+
+
     def linear_schedule_for_scale(self, num_stagnant_steps=100):
         """
         Linear schedule for scale, the relative weight assigned
@@ -426,26 +442,20 @@ class Spaformer(pl.LightningModule):
         split the whole batch into two parts. one for masked expression level prediction (can also be split into cytoplasm & nucleus). one for co-occurrence prediction
         '''     
         div = int(self.outer_config["n_tasks"])
-        # import pdb; pdb.set_trace()
         batch_size = batch["indices"].shape[0]
-        print(f"Batch size = {batch_size}")
         
         # assert batch_size%div == 0, f"For minibatch implementation, the batch size should be set to {div}*n"
         mini_size = int(batch_size/div)
-        print(f"mini batch size = {mini_size}")
+        # print(f"mini batch size = {mini_size}")
         mini_batch_list = []
         #only apply for exp batch
         for mini_batch in range(div-1): #because one left for spatial
-            # import pdb; pdb.set_trace()
             exp_batch = {k: v[int(mini_batch*mini_size):int((mini_batch+1)*mini_size)] for k, v in batch.items()}
-            # import pdb; pdb.set_trace()
             exp_batch = complete_masking(exp_batch, self.hparams.masking_p, self.hparams.n_tokens) #for mask expression prediction
             mini_batch_list.append(exp_batch)
-            # import pdb; pdb.set_trace()
         
         spa_batch = {k: v[-mini_size:] for k, v in batch.items()}
         mini_batch_list.append(spa_batch)
-        # import pdb; pdb.set_trace()
         
         return mini_batch_list
     
@@ -465,13 +475,13 @@ class Spaformer(pl.LightningModule):
         attention_mask = batch['attention_mask']
         norm_exp = batch[target]       
         adjmtx = batch['adjmtx']
+        # import pdb; pdb.set_trace()
         predictions = self.forward(masked_indices, adjmtx, attention_mask)
         mlm_predictions = predictions['mlm_prediction']
-        # spa_predictions = predictions['spa_prediction']#
         # import pdb; pdb.set_trace()
         real_indices = torch.where(mask==MASK_TOKEN, real_indices, torch.tensor(-100, dtype=torch.long)).type(torch.int64)
         mlm_predictions = mlm_predictions.view(-1, self.hparams.n_tokens+self.hparams.n_atokens)
-        # spa_predictions = spa_predictions.view(-1, self.hparams.n_tokens+self.hparams.n_atokens, self.hparams.n_tokens+self.hparams.n_atokens)
+        # import pdb; pdb.set_trace()
         real_indices = real_indices.view(-1)
         norm_exp = norm_exp.view(-1)
         return mlm_predictions, norm_exp, real_indices, attention_mask
@@ -484,7 +494,6 @@ class Spaformer(pl.LightningModule):
         return spa_predictions, adjmtx
     
     def setup_sigma(self):
-        # import pdb; pdb.set_trace()
         n_tasks = self.outer_config["n_tasks"]
         for i in range(1, n_tasks):
             setattr(self, f'log_sigma_reg{i}', nn.Parameter(torch.zeros(1)))
@@ -494,80 +503,90 @@ class Spaformer(pl.LightningModule):
     
 
     
-    def validation_step(self, batch, batch_idx, *args, **kwargs):    
-
-        if self.outer_config["mini_batch"]:
-            # import pdb; pdb.set_trace()
-            mini_batch_list = self.mini_batch_setup(batch)    
-            # import pdb; pdb.set_trace()
-            total_loss = torch.tensor(0, dtype=torch.float, device=self.device)
-
-            target_dict = {0: "normalized_exp", 1: "nuc_exp", 2: "cyto_exp"}
-            for i, exp_batch in enumerate(mini_batch_list[:-1]): #make sure the last one is the spatial mini batch
-                # import pdb; pdb.set_trace()
-                mlm_predictions, target, real_indices, attention_mask = self.predict_exp(exp_batch, target_dict[i]) #different task means different targets here
-                MLM_loss = self.MEloss(mlm_predictions, real_indices, target) # MLM loss
-                if self.outer_config["weight_strategy"] == "DWA":
-                    self.log(f'val_MLM_loss({target_dict[i]})', MLM_loss, sync_dist=True, prog_bar=False, reduce_fx='mean')
-                elif self.outer_config["weight_strategy"] == "UW":
-                    self.log(f'val_MLM_loss({target_dict[i]})', MLM_loss, sync_dist=True, prog_bar=False, reduce_fx='mean')
-                    log_sigma = getattr(self, f'log_sigma_reg{i+1}')[0]
-                    # self.log(f'val_MLM_loss({target_dict[i]})', MLM_loss, sync_dist=True, prog_bar=False, reduce_fx='mean')
-                    total_loss += (torch.exp(-log_sigma) * MLM_loss + log_sigma)
+    def validation_step(self, batch, batch_idx, *args, **kwargs): 
+        try:
+            if self.outer_config["mini_batch"]:
             
-
-            # import pdb; pdb.set_trace()
-            spa_batch = mini_batch_list[-1]
-            spa_predictions, adjmtx = self.predict_spa(spa_batch)
-            Spa_loss = self.MDloss(spa_predictions, adjmtx)# spatial loss
-            if self.outer_config["weight_strategy"] == "DWA":
-                self.log('val_Spa_loss', Spa_loss, sync_dist=True, prog_bar=False, reduce_fx='mean')
-                # Calculate dynamic weights
-                weights = self.dynamic_weight_average([MLM_loss, Spa_loss], 2)
-                # Weighted multi-task loss
-                total_loss = weights[0] * MLM_loss + weights[1] * Spa_loss
-                self.log('val_total_loss', total_loss, sync_dist=True, prog_bar=True, reduce_fx='mean')
-            elif self.outer_config["weight_strategy"] == "UW":
-                self.log('val_Spa_loss', Spa_loss, sync_dist=True, prog_bar=False, reduce_fx='mean')
-                total_loss += (torch.exp(-self.log_sigma_class[0]) * Spa_loss * self.linear_schedule_for_scale() + self.log_sigma_class[0])
-                self.log('val_total_loss', total_loss, sync_dist=True, prog_bar=True, reduce_fx='mean')
-
-        else:
-            total_loss = torch.tensor(0, dtype=torch.float, device=self.device)
-            if self.outer_config["objective"] == "normalized_exp":
-                batch = complete_masking(batch, self.hparams.masking_p, self.hparams.n_tokens) #for mask expression prediction
-                # import pdb; pdb.set_trace()
-                mlm_predictions, target, real_indices, attention_mask = self.predict_exp(batch, "normalized_exp") 
-                MLM_loss = self.MEloss(mlm_predictions, real_indices, target) # MLM loss
-                self.log('val_MLM_loss(normalized_exp)', MLM_loss, sync_dist=True, prog_bar=False, reduce_fx='mean')
-                self.log('val_total_loss', MLM_loss, sync_dist=True, prog_bar=True, reduce_fx='mean')
-
-                total_loss += MLM_loss
-            elif self.outer_config["objective"] == "spatial":
-                spa_predictions, adjmtx = self.predict_spa(batch)
-                Spa_loss = self.MDloss(spa_predictions, adjmtx)# spatial loss
-                self.log('val_Spa_loss', Spa_loss, sync_dist=True, prog_bar=False, reduce_fx='mean')
-                self.log('val_total_loss', Spa_loss, sync_dist=True, prog_bar=True, reduce_fx='mean')
-                total_loss += Spa_loss
+                mini_batch_list = self.mini_batch_setup(batch)    
                 
-        # There's a corner case that returns NaN loss: when there are no masked tokens
-        # however, likelihood of that is (1-p)^context_length
-        
-        # if self.hparams.masking_p == 0.0: # this case is uniquely for the fine tuning case (check _fine_tune_model)
-        #     loss = torch.tensor(0.0, device=mlm_predictions.device)
-        # else:
-        #     if self.ag_loss:
-        #         MLM_loss = self.loss(mlm_predictions, real_indices, norm_exp) # MLM loss
-        #         ag_loss = self.compute_ag_loss(lamda = self.outer_config["lambda"])
-        #         ag_loss_sche = ag_loss * self.outer_config["scale"] * self.linear_schedule_for_scale()      
-        #         total_loss = MLM_loss + ag_loss_sche
-        #         self.log('val_loss', MLM_loss, sync_dist=True, prog_bar=True, reduce_fx='mean')
-        #         self.log('ag_loss', ag_loss_sche, sync_dist=True, prog_bar=False, reduce_fx='mean')
-        #         self.log('total_loss', total_loss, sync_dist=True, prog_bar=False, reduce_fx='mean')
+                total_loss = torch.tensor(0, dtype=torch.float, device=self.device)
 
-        
-        
-        return total_loss
+                target_dict = {0: "normalized_exp", 1: "nuc_exp", 2: "cyto_exp"}
+                for i, exp_batch in enumerate(mini_batch_list[:-1]): #make sure the last one is the spatial mini batch
+                    
+                    mlm_predictions, target, real_indices, attention_mask = self.predict_exp(exp_batch, target_dict[i]) #different task means different targets here
+                    MLM_loss = self.MEloss(mlm_predictions, real_indices, target) # MLM loss
+                    if self.outer_config["weight_strategy"] == "DWA":
+                        self.log(f'val_MLM_loss({target_dict[i]})', MLM_loss, sync_dist=True, prog_bar=False, reduce_fx='mean')
+                    elif self.outer_config["weight_strategy"] == "UW":
+                        self.log(f'val_MLM_loss({target_dict[i]})', MLM_loss, sync_dist=True, prog_bar=False, reduce_fx='mean')
+                        log_sigma = getattr(self, f'log_sigma_reg{i+1}')[0]
+                        total_loss += (torch.exp(-log_sigma) * MLM_loss + log_sigma)
+                
+
+                
+                spa_batch = mini_batch_list[-1]
+                spa_predictions, adjmtx = self.predict_spa(spa_batch)
+                Spa_loss = self.MDloss(spa_predictions, adjmtx)# spatial loss
+                if self.outer_config["weight_strategy"] == "DWA":
+                    self.log('val_Spa_loss', Spa_loss, sync_dist=True, prog_bar=False, reduce_fx='mean')
+                    # Calculate dynamic weights
+                    weights = self.dynamic_weight_average([MLM_loss, Spa_loss], 2)
+                    # Weighted multi-task loss
+                    total_loss = weights[0] * MLM_loss + weights[1] * Spa_loss
+                    self.log('val_total_loss', total_loss, sync_dist=True, prog_bar=True, reduce_fx='mean')
+                elif self.outer_config["weight_strategy"] == "UW":
+                    self.log('val_Spa_loss', Spa_loss, sync_dist=True, prog_bar=False, reduce_fx='mean')
+                    total_loss += (torch.exp(-self.log_sigma_class[0]) * Spa_loss * self.linear_schedule_for_scale() + self.log_sigma_class[0])
+                    self.log('val_total_loss', total_loss, sync_dist=True, prog_bar=True, reduce_fx='mean')
+
+            else:
+                total_loss = torch.tensor(0, dtype=torch.float, device=self.device)
+                if self.outer_config["objective"] == "normalized_exp":
+                    batch = complete_masking(batch, self.hparams.masking_p, self.hparams.n_tokens) #for mask expression prediction
+                    
+                    mlm_predictions, target, real_indices, attention_mask = self.predict_exp(batch, "normalized_exp") 
+                    MLM_loss = self.MEloss(mlm_predictions, real_indices, target) # MLM loss
+                    self.log('val_MLM_loss(normalized_exp)', MLM_loss, sync_dist=True, prog_bar=False, reduce_fx='mean')
+                    self.log('val_total_loss', MLM_loss, sync_dist=True, prog_bar=True, reduce_fx='mean')
+
+                    total_loss += MLM_loss
+                elif self.outer_config["objective"] == "spatial":
+                    spa_predictions, adjmtx = self.predict_spa(batch)
+                    Spa_loss = self.MDloss(spa_predictions, adjmtx)# spatial loss
+                    self.log('val_Spa_loss', Spa_loss, sync_dist=True, prog_bar=False, reduce_fx='mean')
+                    self.log('val_total_loss', Spa_loss, sync_dist=True, prog_bar=True, reduce_fx='mean')
+                    total_loss += Spa_loss
+            self.last_val_loss = total_loss.item()
+           # Check for NaN loss
+            if torch.isnan(total_loss) or torch.isinf(total_loss):
+            
+            # if torch.isnan(total_loss).any():
+            #     #save everything
+                pickle.dump(to_cpu(batch), open("/scratch/project_465001027/Spatialformer/data/nanbatch.pkl", "wb"))
+                pickle.dump(to_cpu(mini_batch_list), open("/scratch/project_465001027/Spatialformer/data/minibatchlist.pkl", "wb"))
+                pickle.dump(to_cpu(mlm_predictions), open("/scratch/project_465001027/Spatialformer/data/mlm_predictions.pkl", "wb"))
+                pickle.dump(to_cpu(target), open("/scratch/project_465001027/Spatialformer/data/target.pkl", "wb"))
+                pickle.dump(to_cpu(real_indices), open("/scratch/project_465001027/Spatialformer/data/real_indices.pkl", "wb"))
+                pickle.dump(to_cpu(attention_mask), open("/scratch/project_465001027/Spatialformer/data/attention_mask.pkl", "wb"))
+                pickle.dump(to_cpu(MLM_loss), open("/scratch/project_465001027/Spatialformer/data/MLM_loss.pkl", "wb"))
+                pickle.dump(to_cpu(log_sigma), open("/scratch/project_465001027/Spatialformer/data/log_sigma.pkl", "wb"))
+                pickle.dump(to_cpu(spa_predictions), open("/scratch/project_465001027/Spatialformer/data/spa_predictions.pkl", "wb"))
+                pickle.dump(to_cpu(adjmtx), open("/scratch/project_465001027/Spatialformer/data/adjmtx.pkl", "wb"))
+                pickle.dump(to_cpu(Spa_loss), open("/scratch/project_465001027/Spatialformer/data/Spa_loss.pkl", "wb"))
+                pickle.dump(to_cpu(self.log_sigma_class[0]), open("/scratch/project_465001027/Spatialformer/data/log_sigma_class.pkl", "wb"))
+                pickle.dump(to_cpu(self.linear_schedule_for_scale()), open("/scratch/project_465001027/Spatialformer/data/linear_schedule_for_scale.pkl", "wb"))
+                raise ValueError(f"NaN or Inf loss detected on batch index {batch_idx}.")
+        except ValueError as e:
+            print(f"Stopping training due to: {e}")
+            # This could stop the training loop
+            raise 
+
+
+
+        return total_loss      
+       
+  
             
     
     def get_embeddings(self, batch, layers: List[int] = [11]):
@@ -580,8 +599,7 @@ class Spaformer(pl.LightningModule):
             function (str): "concat", "mean", "sum", "cls" or None to combine the hidden rep. obtained
         """        
         
-        #batch['X'] = batch['X'][:, :self.hparams.context_length]
-        # import pdb; pdb.set_trace()
+        
         indices = batch["indices"].to(self.device)
         adjmtx = batch["adjmtx"].to(self.device)
         attention_mask = batch["attention_mask"].to(self.device)
@@ -620,7 +638,7 @@ class Spaformer(pl.LightningModule):
 class PositionalEncoding(nn.Module):
     def __init__(self, d_model, max_seq_len):
         super(PositionalEncoding, self).__init__()
-        import pdb; pdb.set_trace()
+        # import pdb; pdb.set_trace()
         encoding = torch.zeros(max_seq_len, d_model)
         position = torch.arange(0, max_seq_len, dtype=torch.float).unsqueeze(1)
         div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model))

@@ -16,6 +16,9 @@
 
 /scripts/*.pkl
 /scripts/*.log
+/scripts/*.out
+/scripts/figures/*
+/scripts/core
 
 /reference_gene/*
 

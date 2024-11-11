@@ -10,14 +10,14 @@ model_path = os.path.join(p_path, "model")
 util_path = os.path.join(p_path, "utils")
 sys.path.append(model_path)
 sys.path.append(util_path)
-# import pdb; pdb.set_trace()
-from Spaformer import Spaformer 
-# import pdb; pdb.set_trace() 
+from utils import *
 import pytorch_lightning as pl
 import torch
 from pytorch_lightning.loggers import WandbLogger
 from pytorch_lightning.loggers import CSVLogger
 from pytorch_lightning.callbacks import ModelCheckpoint, LearningRateMonitor
+from pytorch_lightning.plugins.environments import SLURMEnvironment
+import signal
 import json
 import numpy as np
 import logging
@@ -25,19 +25,16 @@ from datasets import load_from_disk
 from datasets import DatasetDict, load_dataset, concatenate_datasets
 from torch.utils.data import ConcatDataset
 from h5toloader import get_dataset,create_data_loaders
-os.environ["WANDB_CACHE_DIR"] = "/home/sxr280/Spatialformer/cache"
-# os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
-# os.environ['TORCH_USE_CUDA_DSA'] = '1'
-os.environ["WANDB_DIR"] = "/home/sxr280/Spatialformer/cache"
-os.environ["WANDB_CONFIG_DIR"] = "/home/sxr280/Spatialformer/cache"
-os.environ["WANDB_CACHE_DIR"] = "/home/sxr280/Spatialformer/cache"
-hf_cache = "/home/sxr280/Spatialformer/cache"
-data_path = "/home/sxr280/Spatialformer/wandb"
-# data_name = [file.split("/")[-1] for file in os.listdir(data_path) if "relabel" in file]
-# adata_paths = [os.path.join(data_path, name, "processed", name + "." + "h5ad") for name in data_name]
-# other_array_path = ["/scratch/project_465001027/spatialformer/data/processed/Xenium_Preview_Human_Non_diseased_Lung_With_Add_on_FFPE_outs_arrow"]
-
+os.environ["WANDB_CACHE_DIR"] = "/scratch/project_465001027/Spatialformer/cache"
+os.environ["WANDB_DIR"] = "/scratch/project_465001027/Spatialformer/cache"
+os.environ["WANDB_CONFIG_DIR"] = "/scratch/project_465001027/Spatialformer/cache"
+os.environ["WANDB_CACHE_DIR"] = "/scratch/project_465001027/Spatialformer/cache"
+hf_cache = "/scratch/project_465001027/spatialformer/cache"
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+#track the NAN loss
+torch.autograd.set_detect_anomaly(True)
+
 def manual_train_fm(config=None):
     
     pl.seed_everything(42)
@@ -54,10 +51,6 @@ def manual_train_fm(config=None):
                         lr=config['lr'],
                         max_epochs=config['max_epochs'],
                         pool=config['pool'],
-                        learnable_pe=config['learnable_pe'],
-                        specie=config['specie'],
-                        assay=config['assay'],
-                        modality=config['modality'],
                         bpp=config['bpp'],
                         bpp_scale = config['bpp_scale'],
                         ag_loss = config['ag_loss'],
@@ -71,10 +64,14 @@ class MyTrainer:
     def __init__(self, config):
         self.config = config
         self.plmodel = manual_train_fm(config=config)
-        self.output_dir = "/home/sxr280/Spatialformer/output"
+        self.output_dir = "/scratch/project_465001027/Spatialformer/output"
         
         self.gpus = torch.cuda.device_count()
+        # import pdb; pdb.set_trace()
+        self.num_nodes = int(os.environ.get('SLURM_JOB_NUM_NODES', 1))
+        logging.info(f"The number of GPUS: {self.gpus}")
         self.trainer = None
+        self.set_trainer()
 
     def make_callback(self):
         # Callbacks
@@ -82,7 +79,7 @@ class MyTrainer:
         ModelCheckpoint(
             dirpath=os.path.join(self.output_dir, "checkpoints"),
             filename=f"{{step:07d}}-{{train_total_loss:.4f}}-{{val_total_loss:.4f}}",
-            every_n_train_steps=2000,
+            every_n_train_steps=5000,
             save_top_k=-1,
             # every_n_epochs=1,
             monitor='train_total_loss',
@@ -100,17 +97,19 @@ class MyTrainer:
         # self.logger = CSVLogger("/home/sxr280/Spatialformer/output", name="my_experiment")
         
         self.trainer = pl.Trainer(
+            plugins=[SLURMEnvironment(requeue_signal=signal.SIGUSR1)],
             accelerator="auto",
             devices=self.gpus,
+            # devices=1,
             max_steps=self.config["total_step"],
-            val_check_interval = 0.1,
+            val_check_interval = 1.0,
             default_root_dir=self.output_dir,
             callbacks=self.make_callback(),
             log_every_n_steps=50,
             logger=self.logger,
             precision='bf16',
             strategy = self.config['strategy'],
-            num_nodes = 1,
+            num_nodes = self.num_nodes,
             gradient_clip_val = 1,
             accumulate_grad_batches = self.config['accumulate_grad_batches']
         )
@@ -119,7 +118,6 @@ class MyTrainer:
                                   name = "pilot", 
                                   log_model = "all", 
                                   save_dir = self.output_dir)
-        # import pdb; pdb.set_trace()
         logging.info("resuming the training ...")
         self.trainer = pl.Trainer(
             accelerator="auto",
@@ -141,8 +139,7 @@ class MyTrainer:
 
 
     def train(self, train_loader, val_loader):
-        # import pdb; pdb.set_trace()
-        self.set_trainer()
+        # self.set_trainer()
         self.trainer.fit(self.plmodel, train_loader, val_loader)
 
     def test(self, test_loader):
@@ -163,174 +160,112 @@ def get_all_dataset(file_names):
     val_datasets = []
     all_mean = []
     for i, name in enumerate(file_names):
-        # TerminatorJ/relabel_output-XETG00048__0003400__VUILD91MF__20230313__191400
         remote_name = "TerminatorJ/"+name
-        # import pdb; pdb.set_trace()
         sta_datasets = load_dataset(remote_name, cache_dir = hf_cache, num_proc = 1)
-        # sta_datasets = load_from_disk(name)
         train_datasets.append(sta_datasets["train"])
         test_datasets.append(sta_datasets["test"])
         val_datasets.append(sta_datasets["validation"])
-
         mean_length_train = mean_length_of_full_tokens(sta_datasets['train'])
         mean_length_test = mean_length_of_full_tokens(sta_datasets['test'])
         mean_length_validation = mean_length_of_full_tokens(sta_datasets['validation'])
         mean_length = np.mean([mean_length_train, mean_length_test, mean_length_validation])
         all_mean.append(mean_length)
         print("mean length of %s is " % name.split("/")[-1], mean_length)
-
-
-
     logging.info(f"overall mean lenght of these dataset is {np.mean(all_mean)}")
     return train_datasets, test_datasets, val_datasets
 
+class MultiDataLoader:
+    def __init__(self, loaders):
+        self.loaders = loaders
 
+    def __iter__(self):
+        # Create iterators for each DataLoader
+        iterators = [iter(loader) for loader in self.loaders]
+        
+        while True:
+            for iterator in iterators:
+                try:
+                    yield next(iterator)
+                except StopIteration:
+                    continue  # Move to the next DataLoader if one is exhausted
+            break  # Exit once all are exhausted
 
 if __name__ == "__main__":
-    # import pdb; pdb.set_trace()
     
-    with open(os.path.join("/home/sxr280/Spatialformer/config/_config_train.json"), 'r') as json_file:
+    with open(os.path.join("/scratch/project_465001027/Spatialformer/config/_config_train_large_pair.json"), 'r') as json_file:
         config = json.load(json_file)
 
-    # tokenized_datasets = get_dataset(data_path)
-    # file_names = ["relabel_output-XETG00048__0003392__THD0008__20230313__191400",
-    #               "relabel_output-XETG00048__0003400__THD0011__20230313__191400",
-    #               "relabel_output-XETG00048__0003400__TILD117LF__20230313__191400",
-    #               "relabel_output-XETG00048__0003400__VUILD91LF__20230313__191400",
-    #               "relabel_output-XETG00048__0003400__VUILD78LF__20230313__191400",
-    #               "relabel_output-XETG00048__0003789__VUHD095__20230308__003731",
-    #               "relabel_output-XETG00048__0003789__VUILD104LF__20230308__003731",
-    #               "relabel_output-XETG00048__0003392__VUILD115__20230313__191400",
-    #               "relabel_output-XETG00048__0003817__VUILD107MF__20230308__003731",
-    #               "relabel_output-XETG00048__0003392__VUILD106__20230313__191400",
-    #               "relabel_output-XETG00048__0003789__VUHD069__20230308__003731",
-    #               "relabel_output-XETG00048__0003817__VUILD102LF__20230308__003731",
-    #               "relabel_output-XETG00048__0003789__VUILD48MF__20230308__003731",
-    #               "relabel_output-XETG00048__0003817__VUILD96LF__20230308__003730",
-    #               "relabel_output-XETG00048__0003400__VUILD78MF__20230313__191400",
-    #               "relabel_output-XETG00048__0003400__TILD175__20230313__191400",
-    #               "relabel_output-XETG00048__0003817__VUILD102MF__20230308__003730",
-    #               "relabel_output-XETG00048__0003400__TILD117MF__20230313__191400",
-    #               "relabel_output-XETG00048__0003817__VUILD96MF__20230308__003730",
-    #               "relabel_output-XETG00048__0003817__VUHD116A__20230308__003730",
-    #               "relabel_output-XETG00048__0003789__VUILD105MF__20230308__003731",
-    #               "relabel_output-XETG00048__0003817__VUHD116B__20230308__003731",
-    #               "relabel_output-XETG00048__0003392__VUILD110__20230313__191400",
-    #               "relabel_output-XETG00048__0003789__VUHD113__20230308__003731",
-    #               "relabel_output-XETG00048__0003400__VUILD91MF__20230313__191400"]
+    # combined_dataset = load_dataset("TerminatorJ/xenium_pandavid_dataset", cache_dir = hf_cache, num_proc = 8)
+        # import pdb; pdb.set_trace()
+    input_mode = config["input_mode"]
+    meta_counter = int(config["organ"]) + int(config["specie"]) + int(config["assay"]) + int(config["condition"])
+    if input_mode == "single":
+        from Spaformer import Spaformer 
+        combined_dataset = load_from_disk("/scratch/project_465001027/Spatialformer/cache/xenium_pandavid_dataset4")
 
+        train_dataloader, val_dataloader = create_data_loaders(combined_dataset, batch_size=config["batch_size"], context_length=config["context_length"], special_token_num = meta_counter, directionality = config["directionality"])
+        
+        Trainer = MyTrainer(config = config)
+        if config["retake_training"]:
+            Trainer.resume_train(config["pretrained_path"], train_dataloader, val_dataloader)
+        else:
+            Trainer.train(train_dataloader, val_dataloader)
+    elif input_mode == "pair":
+        from Spaformer_pair import Spaformer
+        from data_loader import create_dataloader,create_dataloader2
+        from tqdm import tqdm
+        Trainer = MyTrainer(config = config)
+        # combined_dataset = load_from_disk("/scratch/project_465001027/Spatialformer/cache/xenium_pandavid_dataset4") 
+        #the index for fast retriving 
+        # index_path = "/scratch/project_465001027/Spatialformer/data/sample_cell_index.pkl"
+        #getting all the sample names
+        # sample_cell_index = get_index(combined_dataset, save_file = index_path)
 
-    # try:
-    #     print("load data from disk")
-    #     # import pdb; pdb.set_trace()
-    #     combined_dataset = load_from_disk(os.path.join(hf_cache,"xenium_25_lung_dataset_update4"))
+        # for sample_name in tqdm(list(sample_cell_index.keys())[:2]):
+        # train_dataloader, val_dataloader = create_sample_data_loaders(
+        #                                                             combined_dataset, 
+        #                                                             sample_cell_index, 
+        #                                                             radius = 30, 
+        #                                                             batch_size = config["batch_size"], 
+        #                                                             directionality = config["directionality"],
+        #                                                             context_length = config["context_length"], 
+        #                                                             padding_idx = 0,
+        #                                                             special_token_num = meta_counter,
+        #                                                             n_bins = 51,
+        #                                                             sep_token = 1949,
+        #                                                             cls_token = 1,
+        #                                                             num_workers = 1,
+        #                                                             pin_memory = False)
+        
+        datapath = "/scratch/project_465001027/Spatialformer/cache"
+        train_dataloader, val_dataloader = create_dataloader(datapath, 
+                                                            num_workers = 8, 
+                                                            batch_size = config["batch_size"],
+                                                            # batch_size = 16,
+                                                            directionality = config["directionality"],
+                                                            context_length = config["context_length"], 
+                                                            padding_idx = 0, 
+                                                            special_token_num = meta_counter, 
+                                                            n_bins = 51, 
+                                                            sep_token = 1949, 
+                                                            cls_token = 1)
+        # train_dataloader, val_dataloader = create_dataloader2(datapath, 
+        #                                                     num_workers = 8, 
+        #                                                     batch_size = config["batch_size"],
+        #                                                     # batch_size = 16,
+        #                                                     directionality = config["directionality"],
+        #                                                     context_length = config["context_length"], 
+        #                                                     padding_idx = 0, 
+        #                                                     special_token_num = meta_counter, 
+        #                                                     n_bins = 51, 
+        #                                                     sep_token = 1949, 
+        #                                                     cls_token = 1)
+        if config["retake_training"]:
+            Trainer.resume_train(config["pretrained_path"], train_dataloader, val_dataloader)
+        else:
+            Trainer.train(train_dataloader, val_dataloader)
 
-    #     # combined_dataset = load_dataset("TerminatorJ/xenium_25_lung_dataset_update3", cache_dir = hf_cache, num_proc = 1)
-    # except:
-    #     train_datasets, test_datasets, val_datasets = get_all_dataset(file_names)
-    #     # import pdb; pdb.set_trace()
-    #     #concating all the dataset
-    #     combined_dataset = DatasetDict({
-    #     'train': concatenate_datasets(train_datasets),
-    #     'test': concatenate_datasets(test_datasets),
-    #     'validation': concatenate_datasets(val_datasets)
-    #     })
-
-    #     #push the integrated dataset to the hub
-    #     combined_dataset.push_to_hub("xenium_25_lung_dataset")
-    root = "/tmp/erda/Spatialformer/downloaded_data/processed/"
-    concat_name = "xenium_pan_dataset"
-    out_path = os.path.join(root, concat_name)
-    import pdb; pdb.set_trace()
-    combined_dataset = load_from_disk(out_path)
-    import pdb; pdb.set_trace()
-    
-    # combined_dataset = load_from_disk("/tmp/erda/Spatialformer/downloaded_data/processed/xenium_pan_dataset")
-    # import pdb; pdb.set_trace()
-
-    
-    # import pdb; pdb.set_trace()
-    # train_dataloader, val_dataloader, test_dataloader = create_data_loaders(tokenized_datasets, batch_size=config["batch_size"], context_length=config["context_length"])
-    train_dataloader, val_dataloader = create_data_loaders(combined_dataset, batch_size=config["batch_size"], context_length=config["context_length"], special_token_num = 0, directionality = config["directionality"])
-    # for batch in train_dataloader:
-    #     pass
-    # import pdb; pdb.set_trace()
-    Trainer = MyTrainer(config = config)
-    if config["retake_training"]:
-    # Trainer.train(train_dataloader, val_dataloader)
-        # Trainer.resume_train("/home/sxr280/Spatialformer/output/checkpoints/step=0003000-train_total_loss=0.6783-val_total_loss=0.6794.ckpt", train_dataloader, val_dataloader)
-        Trainer.resume_train(config["pretrained_path"], train_dataloader, val_dataloader)
-    else:
-        Trainer.train(train_dataloader, val_dataloader)
-    # print("skip the training, only getting the test performance###")
-    # test 
-    # Trainer.test(test_dataloader)
-    # for i,batch in enumerate(test_dataloader):
-    #     if i < 1:
-    #         get = batch
-    # import pdb; pdb.set_trace()
-    # plmodel = Trainer.plmodel
-    # plmodel.get_embeddings(get, [0])
-    
-    '''
-    #testing the nan issue
-    import pickle
-    from torch.nn import init
-    # os.environ["visible_cuda"] = "0"
-    import pdb; pdb.set_trace()
-    data = pickle.load(open("/scratch/project_465001027/spatialformer/scripts/save_input.pkl","rb"))
-    # data = {i: [data[i][j].to("cpu") for j in range(len(data[i]))] for i in data}
-
-    # pickle.dump(data, open("/scratch/project_465001027/spatialformer/scripts/save_input.pkl", "wb"))
-    #loading the model
-    with open(os.path.join("/scratch/project_465001027/spatialformer/config/_config_train.json"), 'r') as json_file:
-        config = json.load(json_file)
-    Trainer = MyTrainer(config = config)
-    model = Trainer.plmodel
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    model.to(device)
-    first_param_before = next(iter(model.parameters()))
-    masked_indices, adjmtx, attention_mask = data[12]
-    masked_indices.to(model.device)
-    adjmtx.to(model.device)
-    attention_mask.to(model.device)
-    
-    
-    predictions = model(masked_indices, adjmtx, attention_mask)
-
-    import pdb; pdb.set_trace()
-    # Assuming 'model' is your neural network model
-    # for param in model.parameters():
-    #     if param.requires_grad:
-    #         print("checking whether the parameters are nan:",torch.isnan(param).any())
-    #         init.normal_(param.data, mean=0, std=0.01)  # Initialize with Gaussian noise
-    first_param_after = next(iter(model.parameters()))
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    model.to(device)
-    #loading the parameters
-    import pdb; pdb.set_trace()
-    ckp = torch.load("/scratch/project_465001027/spatialformer/output/checkpoints/step=0000003-train_loss=6.4212-val_loss=0.0000.ckpt")
-    params = ckp["state_dict"]
-    model.load_state_dict(params)
-
-    masked_indices, adjmtx, attention_mask = data[12]
-    #change to the same device
-    masked_indices.to(model.device)
-    adjmtx.to(model.device)
-    attention_mask.to(model.device)
-    #swich the torch as the size
-    A = torch.ones_like(masked_indices)
-    B = torch.ones_like(adjmtx)
-    C = torch.one_like(attention_mask)
-    predictions = model(A, B, attention_mask)
-
-
-    predictions = model(masked_indices, adjmtx, attention_mask)
-    '''
-
-
-
-
+   
 
     
 

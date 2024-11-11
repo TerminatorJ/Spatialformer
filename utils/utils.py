@@ -7,6 +7,8 @@ import numpy as np
 from communities.algorithms import louvain_method
 import networkx as nx
 import torch
+from tqdm import tqdm
+from datasets.distributed import split_dataset_by_node
 # import torch_geometric
 # from torch_geometric.utils import to_undirected, to_dense_adj, remove_self_loops
 import random
@@ -14,7 +16,468 @@ from collections import defaultdict, Counter
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
 from scipy.sparse import coo_matrix
 from typing import Dict, Optional, Union
+from scipy.spatial import KDTree 
+import matplotlib.pyplot as plt
+import pickle
+import random
+from torch.utils.data import Dataset, IterableDataset
+from itertools import combinations
+from sklearn.model_selection import train_test_split
+from datasets import load_from_disk, interleave_datasets, concatenate_datasets
 # import logging
+
+
+
+def get_adj(sample_dataset, radius = 10, plot = False):
+    r_c = np.array(list(zip(sample_dataset["centroid_x"],sample_dataset["centroid_y"])))
+    cell_ids = sample_dataset["Cell_Ids"]
+    # r_c = np.array(df[['centroid_x', 'centroid_y']])
+    G = nx.Graph()
+    kdtree = KDTree(r_c)
+    # Add all nodes to the graph initially
+    for i in range(len(r_c)):
+        G.add_node(i)
+    for i, x in enumerate(r_c):
+        idx = kdtree.query_ball_point(x, radius)
+        for j in idx:
+            if i < j:
+                G.add_edge(i, j)
+    sparse_adj_matrix = nx.to_scipy_sparse_array(G, nodelist=range(len(r_c)))
+    sparse_adj = sparse_adj_matrix.tocoo()
+
+    if plot:
+        x = r_c[:,0]
+        y = r_c[:,1]
+        # Now, for plotting
+        plt.figure(figsize=(8, 8))
+        pos = {i: (r_c[i][0], r_c[i][1]) for i in range(len(r_c))}  # Position of each node
+
+        # Draw the graph with edges
+        nx.draw(G, pos, with_labels=True, node_color='lightblue', edge_color='gray', node_size=5, font_size=1)
+
+        # Add title and labels
+        plt.title('Graph of Cells with Connections')
+        plt.xlabel('X Coordinate')
+        plt.ylabel('Y Coordinate')
+        plt.grid()
+        plt.axis('auto')
+        plt.gca().set_aspect(1.0, adjustable='datalim') 
+        plt.savefig(f"/scratch/project_465001027/Spatialformer/Figure/selected_coord_{radius}.png", dpi=1000)
+        plt.show()
+
+
+    return sparse_adj, cell_ids
+
+
+
+
+
+def build_index(dataset):
+    # Step 2: Construct the index mapping
+    sample_cell_index = {}
+    # import pdb; pdb.set_trace()
+    cell_ids = dataset.select_columns(["Cell_Ids"])
+    sample_names = dataset.select_columns(["Sample_Names"])
+    for index in tqdm(range(len(cell_ids))):
+        cell_id = cell_ids[index]["Cell_Ids"]  # Access the cell_id for the current row
+        sample_name = sample_names[index]["Sample_Names"]
+        sample_cell_index.setdefault(sample_name, {}).setdefault(cell_id, index)
+    return sample_cell_index
+
+def get_index(dataset, save_file):
+    if not os.path.exists(save_file):
+        sample_cell_index = build_index(dataset) #{sample: {cell : index}}
+        #saving the index
+        pickle.dump(sample_cell_index, open(save_file, "wb"))
+    else:
+        sample_cell_index = pickle.load(open(save_file, "rb"))
+
+    return sample_cell_index
+
+
+
+class CustomIterableDataset:
+    def __init__(self, datapath):
+        '''
+        datapath: cache path
+        split: which split to access ('train' or 'test')
+        shuffle: whether to shuffle the dataset
+        '''
+        all_files = os.listdir(datapath)  # Corrected method name
+        self.datasets_paths = [os.path.join(datapath, file) for file in all_files if file.endswith("pair")]
+
+    def load_dataset(self, path):
+        dataset = load_from_disk(path)
+        return dataset
+
+    def get_all(self):
+        # Iterate through datasets
+        train_iters = []
+        test_iters = []
+        for datasets_path in tqdm(self.datasets_paths[:2]):
+
+            # import pdb; pdb.set_trace()
+            try:
+                dataset = self.load_dataset(datasets_path)
+            except FileNotFoundError:
+                print(f"{datasets_path} is not a valid dataset")
+            # Split the dataset into train/test
+            split_dataset = dataset.train_test_split(test_size=0.005, seed=42)
+
+            # Convert to IterableDataset
+            train_iter_dataset = split_dataset["train"].to_iterable_dataset(num_shards=64)
+            train_iter_dataset = train_iter_dataset.shuffle(buffer_size=10_000, seed=42)
+            test_iter_dataset = split_dataset["test"].to_iterable_dataset(num_shards=64)
+
+            # if self.shuffle:
+            #     # import pdb; pdb.set_trace()
+            #     iter_dataset = iter_dataset.shuffle(buffer_size=10_000, seed=42)
+            train_iters.append(train_iter_dataset)
+            test_iters.append(test_iter_dataset)
+        # import pdb; pdb.set_trace()
+        all_train_iter_dataset = concatenate_datasets(train_iters)
+        #shuffle the train and test iterable dataset, make the batch contain different samples
+        # all_train_iter_dataset = all_train_iter_dataset.shuffle(buffer_size=10_000, seed=42)
+
+        all_test_iter_dataset = concatenate_datasets(test_iters)
+        # all_test_iter_dataset = all_test_iter_dataset.shuffle(buffer_size=10_000, seed=42)
+        # train_interleave_dataset = interleave_datasets(train_iters)
+        # test_interleave_dataset = interleave_datasets(test_iters)
+        return all_train_iter_dataset, all_test_iter_dataset
+
+# dataloader = torch.utils.data.DataLoader(ids, num_workers=4)
+
+
+class DynamicHuggingFaceDataset(IterableDataset):
+    def __init__(self, datapath, split):
+        '''
+        datapath: cache path
+        split: which split to access ('train' or 'test')
+        shuffle: whether to shuffle the dataset
+        '''
+        all_files = os.listdir(datapath)  # Corrected method name
+        self.datasets_paths = [os.path.join(datapath, file) for file in all_files if file.endswith("pair")]
+        self.split = split
+    def load_dataset(self, path):
+        dataset = load_from_disk(path)
+        return dataset
+
+    def __iter__(self):
+        # Iterate through datasets
+        for datasets_path in tqdm(self.datasets_paths):
+        # for i in tqdm(range(0, len(self.datasets_paths))):
+            # if i + 1 < len(self.datasets_paths):
+            #     pairs_path = [self.datasets_paths[i], self.datasets_paths[i + 1]]
+            # else:
+            #     pairs_path = [self.datasets_paths[i]]
+
+            # pair_dataset = []
+            # for path in pairs_path:
+            try:
+                dataset = self.load_dataset(datasets_path)
+            except FileNotFoundError:
+                print(f"{datasets_path} is not a valid dataset")
+                continue
+                # dataset = dataset[:10]###delete
+                # Split the dataset into train/test
+            # dataset = dataset.select(range(100))  ##delete
+            split_dataset = dataset.train_test_split(test_size=0.001, seed=42)
+            # split_dataset = dataset.train_test_split(test_size=0.001)
+                # import pdb; pdb.set_trace()
+                ##   
+            print(split_dataset)
+                # Convert to IterableDataset
+            if self.split == "train":
+                iter_dataset = split_dataset["train"].to_iterable_dataset(num_shards=64)
+                    # pair_dataset.append(iter_dataset)
+                iter_dataset = iter_dataset.shuffle(buffer_size=10_000, seed=42)###
+                # iter_dataset = split_dataset_by_node(iter_dataset, world_size=64, rank=0)
+            elif self.split == "test":
+                iter_dataset = split_dataset["test"].to_iterable_dataset(num_shards=8)##8
+                # iter_dataset = split_dataset_by_node(iter_dataset, world_size=64, rank=0)
+            yield from iter_dataset 
+            # pair_dataset.append(iter_dataset)
+        # if pair_dataset:
+        #     if self.split == "train":
+        #         iter_pair_dataset = concatenate_datasets(pair_dataset)
+        #         iter_pair_dataset = iter_pair_dataset.shuffle(buffer_size=10_000, seed=42)
+        #         yield from iter_pair_dataset 
+        #     elif self.split == "test":
+        #         iter_pair_dataset = concatenate_datasets(pair_dataset)
+        #         yield from iter_pair_dataset
+        # else:
+        #     print("No valid datasets found in the current pair.")
+ 
+
+
+class GetPairs(Dataset):
+    def __init__(self, adjacency_matrix:coo_matrix):
+        self.adj_matrix = adjacency_matrix
+        self.num_nodes = adjacency_matrix.shape[0]
+        # Create positive pairs (edges from adjacency matrix)
+        self.positive_pairs = np.column_stack((adjacency_matrix.row, adjacency_matrix.col))
+
+        # Get the number of positive pairs
+        num_positive = len(self.positive_pairs)
+
+        # Create negative pairs (we will sample after ensuring all nodes are covered)
+        self.negative_pairs = self.create_negative_pairs(num_positive)
+        #make sure all nodes included
+        # import pdb; pdb.set_trace()
+        positive_covered_nodes = {node for pair in self.positive_pairs for node in pair}
+        negative_covered_nodes = {node for pair in self.negative_pairs for node in pair}
+        # import pdb; pdb.set_trace()
+        all_node = positive_covered_nodes.union(negative_covered_nodes)
+        # import pdb; pdb.set_trace()
+        assert self.num_nodes == len(all_node), "ERROR: There are some nodes won't be sampled"
+        print(f"The total number of pairs: \npositive pair:{len(self.positive_pairs)}\nnegative pair:{len(self.negative_pairs)}")
+
+        self.all_pairs = np.concatenate([self.positive_pairs, self.negative_pairs])
+        self.all_labels = np.concatenate([np.ones(len(self.positive_pairs)), np.zeros(len(self.negative_pairs))])
+
+
+    def get_reverse(self, pairs):
+        reversed_pairs = np.array([[b, a] for a, b in pairs])
+        return reversed_pairs
+
+    def select_one_connection_per_node(self, adjacency_matrix):
+        # Create a list to hold the positive pairs
+        positive_pairs = []
+        
+        # Assuming adjacency_matrix is in COO format
+        rows, cols = adjacency_matrix.row, adjacency_matrix.col
+        
+        # Dictionary to store one connection per node
+        seen_nodes = {}
+        
+        for row, col in zip(rows, cols):
+            if row not in seen_nodes:
+                seen_nodes[row] = col  # Take the first connection for this node
+                positive_pairs.append((row, col))  # Each connection to store
+            
+        
+        return np.array(positive_pairs)
+    def create_negative_pairs(self, num_positive):
+        """Generate negative pairs (non-edges) and ensure they are balanced with positive pairs."""
+        negative_pairs = []
+        # possible_pairs = set((i, j) for i in range(self.num_nodes) for j in range(self.num_nodes) if i != j)
+        covered_nodes = {node for pair in self.positive_pairs for node in pair}
+        uncovered_nodes = [i for i in range(self.num_nodes) if i not in covered_nodes]
+        # Create set of existing positive pairs for quick lookup
+        positive_set = set(map(tuple, self.positive_pairs))
+        gap_num = num_positive - len(negative_pairs)
+        # import pdb; pdb.set_trace()
+        # Step 2: Pair remaining uncovered nodes with covered nodes
+        if gap_num != 0 :
+            for idx, uncovered_node in enumerate(uncovered_nodes):
+                if idx < gap_num:  # Ensure we do not exceed covered nodes count
+                    # import pdb; pdb.set_trace()
+                    # covered_node = list(covered_nodes)[idx]
+                    covered_node = random.sample(covered_nodes, 1)[0]
+                    pair = (covered_node, uncovered_node)
+                    negative_pairs.append(pair)
+        gap_num = num_positive - len(negative_pairs)
+        add_nodes = {node for pair in negative_pairs for node in pair}
+        covered_nodes = covered_nodes.union(add_nodes)
+        uncovered_nodes = [i for i in range(self.num_nodes) if i not in covered_nodes]
+        # import pdb; pdb.set_trace()
+        # Step 3: Pair within the positive pair
+        if gap_num != 0 :
+            for pair in combinations(covered_nodes, 2):
+                if len(negative_pairs) < num_positive:
+                    if pair not in positive_set:
+                        negative_pairs.append(pair)  # Append the uncovered pair
+                else:
+                    break
+        add_nodes = {node for pair in negative_pairs for node in pair}
+        covered_nodes = covered_nodes.union(add_nodes)
+        uncovered_nodes = [i for i in range(self.num_nodes) if i not in covered_nodes]
+        gap_num = num_positive - len(negative_pairs)                
+
+        #if still not enough
+        if gap_num != 0:
+            negative_pairs += negative_pairs[:gap_num]
+        # import pdb; pdb.set_trace()
+        assert num_positive == len(negative_pairs), "The positive and negative pairs should be balanced, please check your codes!!!"
+        assert not bool(set(negative_pairs) & positive_set), "The positive pair should not have overlap pairs with negative pairs"
+        return np.array(negative_pairs)
+    
+
+
+
+
+
+class BalanceDataset(Dataset):
+    def __init__(self, dataset, pairs, labels):
+        self.pairs = pairs
+        self.labels = labels
+        # self.sample_cell_index = sample_cell_index
+        # self.sample_name = sample_name
+        self.dataset = dataset
+        
+    def __len__(self):
+        return len(self.labels)
+
+    def __getitem__(self, idx):
+        # import pdb; pdb.set_trace()
+        left_idx = int(self.pairs[:,0][idx])
+        right_idx = int(self.pairs[:,1][idx])
+        # sample_cell_index = list(self.sample_cell_index[self.sample_name].values())
+        left_dataset = self.dataset.select([left_idx])
+        right_dataset = self.dataset.select([right_idx])
+
+        return left_dataset, right_dataset, self.labels[idx]
+
+
+
+class CustomDataCollator2(object):
+    def __init__(self, directionality, context_length = 1000, padding_idx=0, special_token_num = 4, n_bins = 51, sep_token = 1949, cls_token = 1):
+        self.context_length = context_length
+        self.padding_idx = padding_idx
+        self.directionality = directionality
+        self.special_token_num = special_token_num
+        self.n_bins = n_bins
+        self.cls_token = cls_token
+        self.sep_token = sep_token
+        self.pair_labels = []
+        self.pair1_length = None
+        self.last_mtx_length = None
+        self.batch = None
+        self.full_tokens = None
+        self.full_exp = None
+        self.norm_exp = None
+        self.gg_mtx_p = None
+    def __call__(self, batch):
+        '''
+        batch is the index and label, we need to get the rows of dataset
+        '''
+        #Getting the rows from the datasets
+        # import pdb; pdb.set_trace()
+        # filtered_batch = [item for item in batch if len(item[0]) < 500]
+        pair_labels =  torch.tensor([label for left, right, label in batch])
+        #define which data you want to extract from the dataset
+        
+        self.full_tokens = torch.full((len(batch), self.context_length), self.padding_idx, dtype=torch.int)#, device = device)
+        self.token_type_ids =  torch.full((len(batch), self.context_length), self.padding_idx, dtype=torch.int)#, device = device)
+        self.full_exp = torch.ones((len(batch), self.context_length), dtype=torch.int)#, device = device)
+        self.norm_exp = torch.ones((len(batch), self.context_length),dtype=torch.float)#, device = device)
+        self.gg_mtx = torch.full((len(batch), self.context_length, self.context_length), self.padding_idx, dtype=torch.float)#, device = device)
+        #fill the data 
+
+        self.one_site(batch)
+
+       
+        
+
+        # Filtering: Keep samples with at least 5 non-padding elements
+        valid_mask = (self.full_tokens != self.padding_idx)  # Create a mask for non-padding elements
+        non_padding_counts = valid_mask.sum(dim=1)  # Count non-padding elements for each sample
+        # Filter based on the count of non-padding elements
+        non_zero_indices = non_padding_counts >= 5  # Keep only samples with at least 5 non-padding elements
+        # Now filter gg_mtx to exclude 2D matrices that are all zeros
+        gg_mtx_nonzero_mask = (self.gg_mtx.sum(dim=(1, 2)) != 0)  # Check if sum across the last two dimensions is not zero
+        non_zero_indices = non_zero_indices & gg_mtx_nonzero_mask  # Combine both conditions
+
+
+
+        # Check if there are valid samples
+        if not non_zero_indices.any():
+            print("Skipping batch: no valid samples with at least 5 non-padding elements.")
+            return None 
+
+        # Apply the filter to all relevant tensors
+        self.full_tokens = self.full_tokens[non_zero_indices]
+        self.gg_mtx = self.gg_mtx[non_zero_indices]
+        self.token_type_ids = self.token_type_ids[non_zero_indices]
+        self.full_exp = self.full_exp[non_zero_indices]
+        self.norm_exp = self.norm_exp[non_zero_indices]
+        pair_labels = pair_labels[non_zero_indices]
+
+
+
+        # Pad sequences after filling the data
+        attention_masks = (self.full_tokens != self.padding_idx).bool()
+
+        # pair_labels =  torch.tensor(self.pair_labels)
+        # import pdb; pdb.set_trace()
+        return {
+            'adjmtx': self.gg_mtx,
+            'indices': self.full_tokens,
+            'attention_mask': attention_masks,
+            'normalized_exp': self.norm_exp,
+            "Expression": self.full_exp,
+            "pair_label": pair_labels,
+            "token_type_ids": self.token_type_ids
+        }
+    def filldata(self, sample_index, batch, side):
+
+        full_tokens = torch.tensor(batch["Full_Tokens"][0])
+        gg_mtx = torch.tensor(batch["Gene_Gene_Matrix"][0])
+        raw_exp = torch.tensor(batch["Expression"][0][0])
+
+        #make sure all the data shorter than the context_length
+        if len(full_tokens) > self.context_length:
+            full_tokens = full_tokens[:self.context_length]
+        if gg_mtx.shape[0] > self.context_length:
+            gg_mtx = gg_mtx[:self.context_length, :self.context_length]
+        if len(raw_exp) > self.context_length:
+            raw_exp = raw_exp[:self.context_length]
+        # import pdb; pdb.set_trace()
+        self.full_exp[sample_index,1: raw_exp.size(0)+1] = raw_exp #1 for cls token
+        # import pdb; pdb.set_trace()
+        cls_site = 1
+        sep_site = 1
+        current_size = gg_mtx.shape[0]
+        if side == 0: #for the left pair
+            # import pdb; pdb.set_trace()
+            prefix_length = cls_site + self.special_token_num
+            self.pair1_length = cls_site + full_tokens.size(0)-(4-self.special_token_num)
+            #adding the cls token first
+            self.full_tokens[sample_index,0] = self.cls_token
+            #adding the tokens 
+            self.full_tokens[sample_index,cls_site:self.pair1_length] = full_tokens[4-self.special_token_num:] #add the special token for the left and right sequence
+            #adding the sep in the middle of pair
+            self.full_tokens[sample_index, self.pair1_length] = self.sep_token
+            #adding the gene pair matrix
+            self.last_mtx_length = gg_mtx.shape[0]
+            self.gg_mtx[sample_index, prefix_length:(prefix_length+current_size), prefix_length:(prefix_length+current_size)] = gg_mtx
+
+            self.token_type_ids[sample_index, :self.pair1_length+cls_site] = 1
+        elif side == 1: #for the right pair
+            # import pdb; pdb.set_trace()
+            prefix_length = cls_site + self.special_token_num
+            
+            #adding the right cell
+            start = (self.pair1_length + sep_site)
+            seq_length = full_tokens.size(0)-(4-self.special_token_num)
+            self.full_tokens[sample_index, start:(start + seq_length)] = full_tokens[4-self.special_token_num:]
+            #add the sep to the right end
+            self.full_tokens[sample_index, (start + seq_length): (start + seq_length + sep_site) ] = self.sep_token
+            #add the gene pairs to the right cell
+            self.gg_mtx[sample_index, (prefix_length + self.last_mtx_length + cls_site) : (prefix_length + self.last_mtx_length + cls_site + current_size), (prefix_length + self.last_mtx_length + cls_site) : (prefix_length + self.last_mtx_length + cls_site + current_size)] = gg_mtx
+
+            self.token_type_ids[sample_index, start:(start + seq_length + sep_site)] = 2
+        # import pdb; pdb.set_trace()
+
+    def rebuild_adj(self, data, row, col, shape):
+        # import pdb; pdb.set_trace()
+        sparse_matrix = coo_matrix((data, (row, col)), shape=shape)
+        adj = sparse_matrix.toarray()
+        return adj
+
+
+    def one_site(self, dataset_batch):
+
+        for i, (left_dataset, right_dataset, label) in enumerate(dataset_batch):
+            # import pdb; pdb.set_trace()
+            self.filldata(i, left_dataset, side = 0)
+           
+            self.filldata(i, right_dataset, side = 1)
+            # import pdb; pdb.set_trace()
+            # self.pair_labels.append(label)
+            
+
+
 
 
 def unique_list_mapping_to_one_hot(unique_list: List, target_list: List)-> np.array:
@@ -330,13 +793,14 @@ def binning(
 
 
 
-def complete_masking(batch, p, n_tokens):
+def complete_masking(batch, p, n_tokens, cls_token, mask_token, sep_token, pad_token):
     '''
     This is used to mask the tokens for the mask language model head.
     '''
-    padding_token = 0
-    cls_token = 1
-    mask_token = 2
+    # padding_token = 0
+    # cls_token = 1
+    # mask_token = 2
+    
 
     indices = batch['indices']
     # import pdb; pdb.set_trace()
@@ -351,17 +815,20 @@ def complete_masking(batch, p, n_tokens):
     #embedding the mask token
     masked_indices = torch.where(masked_indices == 0, mask_token, masked_indices)
 
-    masked_indices = torch.where(indices != padding_token, masked_indices, indices) # we just mask non-padding indices
-    mask = torch.where(indices == padding_token, torch.tensor(padding_token), mask) # the mask sequence with the padding tokens
+    masked_indices = torch.where(indices != pad_token, masked_indices, indices) # we just mask non-padding indices
+    mask = torch.where(indices == pad_token, torch.tensor(pad_token), mask) # the mask sequence with the padding tokens
     # so we make the mask of all PAD tokens to be 1 so that it's not taken into account in the loss computation
-    
+    # import pdb; pdb.set_trace()
     # Notice for the following 2 lines that masked_indices has already not a single padding token masked
     masked_indices = torch.where(indices != cls_token, masked_indices, indices) # same with CLS, no CLS token can be masked
-    mask = torch.where(indices == cls_token, torch.tensor(padding_token), mask) # we change the mask so that it doesn't mask any CLS token
+    mask = torch.where(indices == cls_token, torch.tensor(pad_token), mask) # we change the mask so that it doesn't mask any CLS token
+    masked_indices = torch.where(indices != sep_token, masked_indices, indices) # same with SEP, no SEP token can be masked
+    mask = torch.where(indices == sep_token, torch.tensor(pad_token), mask) # we change the mask so that it doesn't mask any SEP token
+
     #setting the 0 to the mask tokens
     mask = torch.where(mask == 0, mask_token, mask)
 
-    mask = torch.where(indices == padding_token, torch.tensor(padding_token), mask)
+    mask = torch.where(indices == pad_token, torch.tensor(pad_token), mask)
 
     # 80% of masked indices are masked
     # 10% of masked indices are a random token
@@ -377,7 +844,7 @@ def complete_masking(batch, p, n_tokens):
     same_tokens = same_tokens * torch.bernoulli(torch.ones_like(same_tokens) * 0.1).type(torch.int64)
     same_tokens = torch.where(same_tokens == 0, mask_token, same_tokens)
     masked_indices = torch.where(masked_indices == mask_token, same_tokens, masked_indices) # put same tokens just in the previously masked tokens
-    masked_indices = torch.where(indices != padding_token, masked_indices, indices) # don't mask the padding sites
+    masked_indices = torch.where(indices != pad_token, masked_indices, indices) # don't mask the padding sites
     batch['masked_indices'] = masked_indices
     batch['mask'] = mask
 

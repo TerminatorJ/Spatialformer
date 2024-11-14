@@ -4,21 +4,10 @@ import torch.nn.init as init
 import pytorch_lightning as pl
 from typing import List
 from torch import optim
-
 import numpy as np
 import math
-import os
-import sys
-from pathlib import Path
-current_file_path = Path(__file__).resolve()
-p_path = current_file_path.parents[1]
-model_dir = os.path.join(p_path, "model")
-util_dir = os.path.join(p_path, "utils")
-sys.path.append(util_dir)
-sys.path.append(model_dir)
-from utils import complete_masking, categorical_2d_masking
-from model import *
-# import wandb
+from ..utils import complete_masking, categorical_2d_masking
+from .model import *
 import pickle
 
 MASK_TOKEN = 2
@@ -577,6 +566,7 @@ class Spaformer(pl.LightningModule):
         attention_mask = batch['attention_mask']
         token_type_ids = batch["token_type_ids"]      
         adjmtx = batch['adjmtx']
+        # import pdb; pdb.set_trace()
         # batch = pickle.load(open("/scratch/project_465001027/Spatialformer/data/nanbatch.pkl","rb"))
 
 

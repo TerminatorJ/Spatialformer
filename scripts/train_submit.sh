@@ -1,7 +1,7 @@
 #!/bin/bash
 #The partition is the queue you want to run on. standard is gpu and can be ommitted.
 #SBATCH --partition=standard-g
-#SBATCH --job-name=train_pair_model
+#SBATCH --job-name=train_pair_model2
 #SBATCH --account=project_465001027
 #number of independent tasks we are going to start in this script
 #SBATCH --ntasks-per-node=8
@@ -11,8 +11,8 @@
 #We expect that our program should not run longer than 2 days
 #Note that a program will be killed once it exceeds this time!
 #SBATCH --time=1-00:00:00
-#SBATCH --output=train_pair_model_%j.out
-#SBATCH --signal=SIGUSR1@90
+#SBATCH --output=train_pair_model2_%j.out
+
 
 
 

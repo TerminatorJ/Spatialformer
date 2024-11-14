@@ -1,16 +1,8 @@
-from pathlib import Path
 import os
-import sys
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
 from pytorch_lightning.callbacks.lr_monitor import LearningRateMonitor
-current_file_path = Path(__file__).resolve()
-p_path = current_file_path.parents[1]
-model_path = os.path.join(p_path, "model")
-util_path = os.path.join(p_path, "utils")
-sys.path.append(model_path)
-sys.path.append(util_path)
-from utils import *
+from .utils import *
 import pytorch_lightning as pl
 import torch
 from pytorch_lightning.loggers import WandbLogger
@@ -22,17 +14,15 @@ import json
 import numpy as np
 import logging
 from datasets import load_from_disk
-from Spaformer_pair import Spaformer
-from datasets import DatasetDict, load_dataset, concatenate_datasets
-from torch.utils.data import ConcatDataset
-from h5toloader import get_dataset,create_data_loaders
+from datasets import load_dataset
+from .model import Spaformer
+from .data_loader import create_dataloader
 os.environ["WANDB_CACHE_DIR"] = "/scratch/project_465001027/Spatialformer/cache"
 os.environ["WANDB_DIR"] = "/scratch/project_465001027/Spatialformer/cache"
 os.environ["WANDB_CONFIG_DIR"] = "/scratch/project_465001027/Spatialformer/cache"
 os.environ["WANDB_CACHE_DIR"] = "/scratch/project_465001027/Spatialformer/cache"
 hf_cache = "/scratch/project_465001027/spatialformer/cache"
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 #track the NAN loss
 torch.autograd.set_detect_anomaly(True)
 
@@ -201,7 +191,7 @@ if __name__ == "__main__":
     input_mode = config["input_mode"]
     meta_counter = int(config["organ"]) + int(config["specie"]) + int(config["assay"]) + int(config["condition"])
     if input_mode == "single":
-        from Spaformer import Spaformer 
+        from .model import Spaformer 
         combined_dataset = load_from_disk("/scratch/project_465001027/Spatialformer/cache/xenium_pandavid_dataset4")
 
         train_dataloader, val_dataloader = create_data_loaders(combined_dataset, batch_size=config["batch_size"], context_length=config["context_length"], special_token_num = meta_counter, directionality = config["directionality"])
@@ -212,31 +202,9 @@ if __name__ == "__main__":
         else:
             Trainer.train(train_dataloader, val_dataloader)
     elif input_mode == "pair":
-        from Spaformer_pair import Spaformer
-        from data_loader import create_dataloader,create_dataloader2
-        from tqdm import tqdm
-        Trainer = MyTrainer(config = config)
-        # combined_dataset = load_from_disk("/scratch/project_465001027/Spatialformer/cache/xenium_pandavid_dataset4") 
-        #the index for fast retriving 
-        # index_path = "/scratch/project_465001027/Spatialformer/data/sample_cell_index.pkl"
-        #getting all the sample names
-        # sample_cell_index = get_index(combined_dataset, save_file = index_path)
+        
 
-        # for sample_name in tqdm(list(sample_cell_index.keys())[:2]):
-        # train_dataloader, val_dataloader = create_sample_data_loaders(
-        #                                                             combined_dataset, 
-        #                                                             sample_cell_index, 
-        #                                                             radius = 30, 
-        #                                                             batch_size = config["batch_size"], 
-        #                                                             directionality = config["directionality"],
-        #                                                             context_length = config["context_length"], 
-        #                                                             padding_idx = 0,
-        #                                                             special_token_num = meta_counter,
-        #                                                             n_bins = 51,
-        #                                                             sep_token = 1949,
-        #                                                             cls_token = 1,
-        #                                                             num_workers = 1,
-        #                                                             pin_memory = False)
+        Trainer = MyTrainer(config = config)
         
         datapath = "/scratch/project_465001027/Spatialformer/cache"
         train_dataloader, val_dataloader = create_dataloader(datapath, 
@@ -250,17 +218,7 @@ if __name__ == "__main__":
                                                             n_bins = 51, 
                                                             sep_token = 1949, 
                                                             cls_token = 1)
-        # train_dataloader, val_dataloader = create_dataloader2(datapath, 
-        #                                                     num_workers = 8, 
-        #                                                     batch_size = config["batch_size"],
-        #                                                     # batch_size = 16,
-        #                                                     directionality = config["directionality"],
-        #                                                     context_length = config["context_length"], 
-        #                                                     padding_idx = 0, 
-        #                                                     special_token_num = meta_counter, 
-        #                                                     n_bins = 51, 
-        #                                                     sep_token = 1949, 
-        #                                                     cls_token = 1)
+
         if config["retake_training"]:
             Trainer.resume_train(config["pretrained_path"], train_dataloader, val_dataloader)
         else:

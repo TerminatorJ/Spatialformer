@@ -8,7 +8,6 @@ import numpy as np
 import h5py
 import os
 import sys
-sys.path.append("/scratch/project_465001027/Spatialformer/utils")
 from utils import *
 import pickle
 from torch.utils.data import Dataset, DataLoader, ConcatDataset
@@ -211,34 +210,33 @@ def save_pair_dataset(dataset, sample_cell_index, radius):
         target_dirs = os.listdir("/scratch/project_465001027/Spatialformer/cache")
         save_path = f"xenium_{sample_name}_pair"
 
-        # if save_path not in target_dirs:
-        print(f"running {save_path}")
-        # Filter the dataset for rows corresponding to the current sample_name
-        sample_index = list(sample_cell_index[sample_name].values())
-        sample_data = combined_dataset_all.select(sample_index)
-        import pdb; pdb.set_trace()
-        sparse_adjmtx,cell_ids = get_adj(sample_data, radius = radius, plot = False)
-        # import pdb; pdb.set_trace()
-        sample_data = sample_data.select_columns(["Full_Tokens","Gene_Gene_Matrix","Expression"])
-        # import pdb;pdb.set_trace()
-        sample_data = sample_data.map(binary_to_coo_matrix, num_proc = 32)
-        sample_data = sample_data.remove_columns("Gene_Gene_Matrix")
-        Pairs = GetPairs(sparse_adjmtx) #sample_index, (leftdataset, rightdataset), label
-        # import pdb;pdb.set_trace()
-        all_left_idxs = list(map(lambda x: x[0],Pairs.all_pairs))
-        all_right_idxs = list(map(lambda x: x[1],Pairs.all_pairs))
-        all_labels = Pairs.all_labels
-        all_left_dataset = sample_data.select(all_left_idxs)
-        all_right_dataset = sample_data.select(all_right_idxs)
-        # import pdb; pdb.set_trace()
-        left_renamed = all_left_dataset.rename_columns({col: f'left_{col}' for col in all_left_dataset.column_names})
-        right_renamed = all_right_dataset.rename_columns({col: f'right_{col}' for col in all_right_dataset.column_names})
-        # import pdb; pdb.set_trace()
-        # Concatenate the two datasets
-        combined_dataset = concatenate_datasets([left_renamed, right_renamed], axis=1)
-        combined_dataset = combined_dataset.add_column("Labels", all_labels)
-        # combined_datasets.append(combined_dataset)
-        combined_dataset.save_to_disk(f"/scratch/project_465001027/Spatialformer/cache/xenium_{sample_name}_pair", num_proc = 32)
+        if save_path not in target_dirs:
+            print(f"running {save_path}")
+            # Filter the dataset for rows corresponding to the current sample_name
+            sample_index = list(sample_cell_index[sample_name].values())
+            sample_data = combined_dataset_all.select(sample_index)
+            sparse_adjmtx,cell_ids = get_adj(sample_data, radius = radius, plot = False)
+            # import pdb; pdb.set_trace()
+            sample_data = sample_data.select_columns(["Full_Tokens","Gene_Gene_Matrix","Expression"])
+            # import pdb;pdb.set_trace()
+            sample_data = sample_data.map(binary_to_coo_matrix, num_proc = 32)
+            sample_data = sample_data.remove_columns("Gene_Gene_Matrix")
+            Pairs = GetPairs(sparse_adjmtx) #sample_index, (leftdataset, rightdataset), label
+            # import pdb;pdb.set_trace()
+            all_left_idxs = list(map(lambda x: x[0],Pairs.all_pairs))
+            all_right_idxs = list(map(lambda x: x[1],Pairs.all_pairs))
+            all_labels = Pairs.all_labels
+            all_left_dataset = sample_data.select(all_left_idxs)
+            all_right_dataset = sample_data.select(all_right_idxs)
+            # import pdb; pdb.set_trace()
+            left_renamed = all_left_dataset.rename_columns({col: f'left_{col}' for col in all_left_dataset.column_names})
+            right_renamed = all_right_dataset.rename_columns({col: f'right_{col}' for col in all_right_dataset.column_names})
+            # import pdb; pdb.set_trace()
+            # Concatenate the two datasets
+            combined_dataset = concatenate_datasets([left_renamed, right_renamed], axis=1)
+            combined_dataset = combined_dataset.add_column("Labels", all_labels)
+            # combined_datasets.append(combined_dataset)
+            combined_dataset.save_to_disk(f"/scratch/project_465001027/Spatialformer/cache/xenium_{sample_name}_pair", num_proc = 32)
         # import pdb; pdb.set_trace()
     
 

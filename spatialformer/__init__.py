@@ -15,5 +15,8 @@ if not logger.hasHandlers() or len(logger.handlers) == 0:
     handler.setFormatter(formatter)
     logger.addHandler(handler)
 
-from .processor import Processor as pp
-from .GraphSAGE import *
+    
+
+# from . import preprocess as pp
+from . import tools as tl
+# from .GraphSAGE import *

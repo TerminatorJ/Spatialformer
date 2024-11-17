@@ -61,12 +61,23 @@ def manual_train_fm(config=None):
 
     return model
  
+
+
+
+
+
+
 class MyTrainer:
-    def __init__(self, config):
+    def __init__(self, config, data_module):
         self.config = config
         self.plmodel = manual_train_fm(config=config)
         self.output_dir = "/scratch/project_465001027/Spatialformer/output"
-        
+        self.data_module = data_module
+        # Load the resume index from a file if needed
+        self.resume_index_path = os.path.join(self.output_dir , 'resume_index.pt')
+        if os.path.isfile(self.resume_index_path):
+            self.data_module.load_state(self.resume_index_path)
+        self.data_module.setup()
         self.gpus = torch.cuda.device_count()
         # import pdb; pdb.set_trace()
         self.num_nodes = int(os.environ.get('SLURM_JOB_NUM_NODES', 1))
@@ -80,7 +91,7 @@ class MyTrainer:
         ModelCheckpoint(
             dirpath=os.path.join(self.output_dir, "checkpoints"),
             filename=f"{{step:07d}}-{{train_total_loss:.4f}}-{{val_total_loss:.4f}}",
-            every_n_train_steps=5000,
+            every_n_train_steps=4000,
             save_top_k=-1,
             # every_n_epochs=1,
             monitor='train_total_loss',
@@ -98,7 +109,7 @@ class MyTrainer:
         # self.logger = CSVLogger("/home/sxr280/Spatialformer/output", name="my_experiment")
         
         self.trainer = pl.Trainer(
-            plugins=[SLURMEnvironment(requeue_signal=signal.SIGUSR1)],
+            # plugins=[SLURMEnvironment(requeue_signal=signal.SIGUSR1)],
             accelerator="auto",
             devices=self.gpus,
             # devices=1,
@@ -114,7 +125,7 @@ class MyTrainer:
             gradient_clip_val = 1,
             accumulate_grad_batches = self.config['accumulate_grad_batches']
         )
-    def resume_train(self, ckp, train_loader, val_loader):
+    def resume_train(self, ckp):
         self.logger = WandbLogger(project = "Spaformer", 
                                   name = "pilot", 
                                   log_model = "all", 
@@ -124,8 +135,8 @@ class MyTrainer:
             accelerator="auto",
             devices=self.gpus,
             strategy = self.config['strategy'],
-            num_nodes = 1,
-            val_check_interval = 0.1,
+            num_nodes = self.num_nodes,
+            val_check_interval = 1.0,
             gradient_clip_val = 1,
             logger=self.logger,
             default_root_dir=self.output_dir,
@@ -136,12 +147,14 @@ class MyTrainer:
             max_steps=self.config["total_step"], 
             resume_from_checkpoint=ckp,
             accumulate_grad_batches = self.config['accumulate_grad_batches'])
-        self.trainer.fit(self.plmodel, train_loader, val_loader)
+
+        self.trainer.fit(self.plmodel, self.data_module)
 
 
-    def train(self, train_loader, val_loader):
+    def train(self):
         # self.set_trainer()
-        self.trainer.fit(self.plmodel, train_loader, val_loader)
+        self.trainer.fit(self.plmodel, self.data_module)
+        self.data_module.save_state(self.resume_index_path)
 
     def test(self, test_loader):
         if self.config['pretrained_weights_path'] is not None:
@@ -213,9 +226,10 @@ if __name__ == "__main__":
             Trainer.train(train_dataloader, val_dataloader)
     elif input_mode == "pair":
         from Spaformer_pair import Spaformer
-        from data_loader import create_dataloader,create_dataloader2
+        from data_loader import CustomDataModule
+        #  from data_loader import create_dataloader
         from tqdm import tqdm
-        Trainer = MyTrainer(config = config)
+        
         # combined_dataset = load_from_disk("/scratch/project_465001027/Spatialformer/cache/xenium_pandavid_dataset4") 
         #the index for fast retriving 
         # index_path = "/scratch/project_465001027/Spatialformer/data/sample_cell_index.pkl"
@@ -239,17 +253,29 @@ if __name__ == "__main__":
         #                                                             pin_memory = False)
         
         datapath = "/scratch/project_465001027/Spatialformer/cache"
-        train_dataloader, val_dataloader = create_dataloader(datapath, 
-                                                            num_workers = 8, 
-                                                            batch_size = config["batch_size"],
-                                                            # batch_size = 16,
-                                                            directionality = config["directionality"],
-                                                            context_length = config["context_length"], 
-                                                            padding_idx = 0, 
-                                                            special_token_num = meta_counter, 
-                                                            n_bins = 51, 
-                                                            sep_token = 1949, 
-                                                            cls_token = 1)
+        # train_dataloader, val_dataloader = create_dataloader(datapath, 
+        #                                                     num_workers = 0, 
+        #                                                     batch_size = config["batch_size"],
+        #                                                     # batch_size = 16,
+        #                                                     directionality = config["directionality"],
+        #                                                     context_length = config["context_length"], 
+        #                                                     padding_idx = 0, 
+        #                                                     special_token_num = meta_counter, 
+        #                                                     n_bins = 51, 
+        #                                                     sep_token = 1949, 
+        #                                                     cls_token = 1)
+
+        datamodule = CustomDataModule(datapath, 
+                        batch_size=config["batch_size"], 
+                        num_workers = 4, 
+                        directionality = config["directionality"],
+                        context_length = config["context_length"],
+                        padding_idx = 0,
+                        special_token_num = meta_counter,
+                        n_bins = 51,
+                        sep_token = 1949,
+                        cls_token = 1)
+        Trainer = MyTrainer(config = config, data_module = datamodule)                                   
         # train_dataloader, val_dataloader = create_dataloader2(datapath, 
         #                                                     num_workers = 8, 
         #                                                     batch_size = config["batch_size"],
@@ -262,9 +288,11 @@ if __name__ == "__main__":
         #                                                     sep_token = 1949, 
         #                                                     cls_token = 1)
         if config["retake_training"]:
-            Trainer.resume_train(config["pretrained_path"], train_dataloader, val_dataloader)
+            # Trainer.resume_train(config["pretrained_path"], train_dataloader, val_dataloader)
+            Trainer.resume_train(config["pretrained_path"])
         else:
-            Trainer.train(train_dataloader, val_dataloader)
+            # Trainer.train(train_dataloader, val_dataloader)
+             Trainer.train()
 
    
 

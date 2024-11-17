@@ -138,7 +138,26 @@ class CustomIterableDataset:
         return all_train_iter_dataset, all_test_iter_dataset
 
 # dataloader = torch.utils.data.DataLoader(ids, num_workers=4)
+class DynamicHuggingFaceDatasetEval(IterableDataset):
+    def __init__(self, datapath):
+        '''
+        huggingface dataset
+        '''
+        self.datapath  = datapath
+    def load_dataset(self, path):
+        dataset = load_from_disk(path)
+        return dataset
 
+    def __iter__(self):
+
+        try:
+            dataset = self.load_dataset(self.datapath)
+        except FileNotFoundError:
+            print(f"{self.datapath} is not a valid dataset")
+
+        iter_dataset = dataset.to_iterable_dataset(num_shards=64)
+
+        yield from iter_dataset 
 
 class DynamicHuggingFaceDataset(IterableDataset):
     def __init__(self, datapath, split):

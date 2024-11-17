@@ -29,7 +29,8 @@ def embed_data(adata,
                mode = "single",
                threshold = 0.8,
                left_cell: Optional[List] = None,
-               right_cell: Optional[List] = None
+               right_cell: Optional[List] = None,
+               num_workers = 0,
                ):
     #fetch the config
     with open(config_path, 'r') as json_file:
@@ -50,7 +51,7 @@ def embed_data(adata,
     if mode == "single":
         tokenizer = GeneTokenizer(token_path, mode = mode, tissue = tissue, condition = condition)
         dataset = GeneExpressionDataset(adata, tokenizer)
-        dataloader = DataLoader(dataset, batch_size=batch_size, collate_fn=collate_fn)
+        dataloader = DataLoader(dataset, batch_size=batch_size, num_workers = num_workers, collate_fn=collate_fn)
         all_embeddings = []
         all_pairs = []
         with torch.no_grad():

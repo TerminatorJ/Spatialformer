@@ -148,13 +148,14 @@ class CustomIterableDataset:
 # dataloader = torch.utils.data.DataLoader(ids, num_workers=4)
 
 
-class DynamicHuggingFaceDataset(IterableDataset):
-    def __init__(self, datapath, split):
+class DynamicHuggingFaceDataset2(IterableDataset):
+    def __init__(self, datapath, split, resume_index):
         '''
         datapath: cache path
         split: which split to access ('train' or 'test')
         shuffle: whether to shuffle the dataset
         '''
+        self.current_index = resume_index
         all_files = os.listdir(datapath)  # Corrected method name
         self.datasets_paths = [os.path.join(datapath, file) for file in all_files if file.endswith("pair")]
         self.split = split
@@ -164,7 +165,9 @@ class DynamicHuggingFaceDataset(IterableDataset):
 
     def __iter__(self):
         # Iterate through datasets
-        for datasets_path in tqdm(self.datasets_paths):
+        for idx, datasets_path in tqdm(enumerate(self.datasets_paths[:2][self.current_index:], start=self.current_index)):
+        # for datasets_path in tqdm(self.datasets_paths):
+            if "THD0008" not in datasets_path:
         # for i in tqdm(range(0, len(self.datasets_paths))):
             # if i + 1 < len(self.datasets_paths):
             #     pairs_path = [self.datasets_paths[i], self.datasets_paths[i + 1]]
@@ -172,30 +175,36 @@ class DynamicHuggingFaceDataset(IterableDataset):
             #     pairs_path = [self.datasets_paths[i]]
 
             # pair_dataset = []
-            # for path in pairs_path:
-            try:
-                dataset = self.load_dataset(datasets_path)
-            except FileNotFoundError:
-                print(f"{datasets_path} is not a valid dataset")
-                continue
-                # dataset = dataset[:10]###delete
-                # Split the dataset into train/test
-            # dataset = dataset.select(range(100))  ##delete
-            split_dataset = dataset.train_test_split(test_size=0.001, seed=42)
-            # split_dataset = dataset.train_test_split(test_size=0.001)
+                # for path in pairs_path:
+                try:
+                    dataset = self.load_dataset(datasets_path)
+                except FileNotFoundError:
+                    print(f"{datasets_path} is not a valid dataset")
+                    continue
+                    # dataset = dataset[:10]###delete
+                    # Split the dataset into train/test
                 # import pdb; pdb.set_trace()
-                ##   
-            print(split_dataset)
-                # Convert to IterableDataset
-            if self.split == "train":
-                iter_dataset = split_dataset["train"].to_iterable_dataset(num_shards=64)
-                    # pair_dataset.append(iter_dataset)
-                iter_dataset = iter_dataset.shuffle(buffer_size=10_000, seed=42)###
-                # iter_dataset = split_dataset_by_node(iter_dataset, world_size=64, rank=0)
-            elif self.split == "test":
-                iter_dataset = split_dataset["test"].to_iterable_dataset(num_shards=8)##8
-                # iter_dataset = split_dataset_by_node(iter_dataset, world_size=64, rank=0)
-            yield from iter_dataset 
+                dataset = dataset.select(range(1000))  ##delete
+                split_dataset = dataset.train_test_split(test_size=0.001, seed=42)
+                # split_dataset = dataset.train_test_split(test_size=0.001)
+                    # import pdb; pdb.set_trace()
+                    ##   
+                print("datasets_path:", datasets_path)
+                print(split_dataset)
+                    # Convert to IterableDataset
+                if self.split == "train":
+                    iter_dataset = split_dataset["train"].to_iterable_dataset(num_shards=64)
+                        # pair_dataset.append(iter_dataset)
+                    iter_dataset = iter_dataset.shuffle(buffer_size=10_000, seed=42)###
+                    import pdb; pdb.set_trace()
+                    # iter_dataset = split_dataset_by_node(iter_dataset, world_size=64, rank=0)
+                elif self.split == "test":
+                    iter_dataset = split_dataset["test"].to_iterable_dataset(num_shards=1)##8
+                    # iter_dataset = split_dataset_by_node(iter_dataset, world_size=64, rank=0)
+                    import pdb; pdb.set_trace()
+                yield from iter_dataset 
+                # After processing a dataset, save the index for resuming training 
+                self.current_index = idx + 1
             # pair_dataset.append(iter_dataset)
         # if pair_dataset:
         #     if self.split == "train":
@@ -207,6 +216,94 @@ class DynamicHuggingFaceDataset(IterableDataset):
         #         yield from iter_pair_dataset
         # else:
         #     print("No valid datasets found in the current pair.")
+    def set_state(self, index):
+        self.current_index = index
+    def get_state(self):
+        return self.current_index
+
+class NonRedundantSampler:
+    def __init__(self, total_samples, batch_size):
+        self.total_samples = total_samples
+        self.batch_size = batch_size
+        self.indices = np.random.permutation(total_samples)  # Shuffle indices
+        self.current_index = 0  # Track the index for sampling
+
+    def sample(self):
+        # Check if we've finished all indices
+        if self.current_index >= self.total_samples:
+            self.indices = np.random.permutation(self.total_samples)  # Reshuffle
+            self.current_index = 0  # Reset index for the new sample
+
+        # Determine the end of the current batch
+        end_index = min(self.current_index + self.batch_size, self.total_samples)
+        batch_indices = self.indices[self.current_index:end_index]
+
+        # Update the current index
+        self.current_index = end_index
+
+        return batch_indices
+
+
+class DynamicHuggingFaceDataset(IterableDataset):
+    def __init__(self, datapath, split, resume_index):
+        '''
+        datapath: cache path
+        split: which split to access ('train' or 'test')
+        shuffle: whether to shuffle the dataset
+        '''
+        self.current_index = resume_index
+        all_files = os.listdir(datapath)  # Corrected method name
+        self.datasets_paths = [os.path.join(datapath, file) for file in all_files if file.endswith("pair")]
+        self.split = split
+        self.yield_counter = 0 
+    def load_dataset(self, path):
+        dataset = load_from_disk(path)
+        return dataset
+
+    def __iter__(self):
+        rank = torch.distributed.get_rank()  # Get current process rank
+        random.seed(rank)
+        while True:  # Continuous iteration
+            
+            datasets_path = random.choice(self.datasets_paths)  #  choose a dataset path
+            print("current datasets:", datasets_path)
+            if "THD0008" not in datasets_path:
+                try:
+                    dataset = self.load_dataset(datasets_path)
+                except FileNotFoundError:
+                    print(f"{datasets_path} is not a valid dataset")
+                    continue
+                
+                # Optionally limit the dataset size, or select a subset if needed
+                # dataset = dataset.select(range(1000))  # Load a subset for processing
+                # Determine the total number of samples available
+                # left_sample = 1500
+                total_samples = len(dataset)
+                n_samples = min(5000, total_samples)  # Ensure not to exceed available samples
+
+                # Randomly select 1000 samples
+                selected_indices = np.random.choice(total_samples, size=n_samples, replace=False)
+                dataset = dataset.select(selected_indices)  # Load a subset for processing
+                split_dataset = dataset.train_test_split(test_size=0.001, seed=42)
+
+                if self.split == "train":
+                    iter_dataset = split_dataset["train"].to_iterable_dataset(num_shards=64).shuffle(buffer_size=10_000)
+                elif self.split == "test":
+                    iter_dataset = split_dataset["test"].to_iterable_dataset(num_shards=8)
+
+                # Yield samples from the current dataset
+                for sample in iter_dataset:
+                    yield sample
+                    # self.yield_counter += 1  # Increment the yield counter
+
+                    # # Resample after every 100 yielded samples
+                    # if self.yield_counter >= 1000:
+                    #     self.yield_counter = 0  # Reset the counter
+                    #     break  # Exit loop to allow re-selection of dataset
+    def set_state(self, index):
+        self.current_index = index
+    def get_state(self):
+        return self.current_index
  
 
 

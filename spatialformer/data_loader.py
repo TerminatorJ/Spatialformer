@@ -8,7 +8,7 @@ import numpy as np
 import h5py
 import os
 import sys
-from utils import *
+from .utils import *
 import pickle
 from torch.utils.data import Dataset, DataLoader, ConcatDataset
 import torch
@@ -258,6 +258,13 @@ def create_dataloader(datapath, num_workers, batch_size, directionality, context
     #     import pdb; pdb.set_trace()
 
     return train_dataloader, val_dataloader
+
+def create_dataloader_eval(datapath, num_workers, batch_size, directionality, context_length, padding_idx, special_token_num, n_bins, sep_token, cls_token):
+
+    iter_dataset = DynamicHuggingFaceDatasetEval(datapath)
+    collator = CustomDataCollator(directionality, context_length, padding_idx, special_token_num, n_bins, sep_token, cls_token)
+    dataloader = DataLoader(iter_dataset, batch_size = batch_size,collate_fn=collator, num_workers=num_workers)
+    return dataloader
 
 def create_dataloader2(datapath, num_workers, batch_size, directionality, context_length, padding_idx, special_token_num, n_bins, sep_token, cls_token):
     combined_dataset = load_from_disk("/scratch/project_465001027/Spatialformer/cache/xenium_pandavid_dataset4")  

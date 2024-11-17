@@ -13,6 +13,7 @@ from utils import *
 import pickle
 from torch.utils.data import Dataset, DataLoader, ConcatDataset
 import torch
+from pytorch_lightning import LightningDataModule
 from sklearn.model_selection import train_test_split
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -81,7 +82,7 @@ class CustomDataCollator(object):
 
         # Pad sequences after filling the data
         attention_masks = (self.full_tokens != self.padding_idx).bool()
-
+        # print(attention_masks.sum())
         # pair_labels =  torch.tensor(self.pair_labels)
         # import pdb; pdb.set_trace()
         return {
@@ -241,6 +242,45 @@ def save_pair_dataset(dataset, sample_cell_index, radius):
         combined_dataset.save_to_disk(f"/scratch/project_465001027/Spatialformer/cache/xenium_{sample_name}_pair", num_proc = 32)
         # import pdb; pdb.set_trace()
     
+
+class CustomDataModule(LightningDataModule):
+    def __init__(self, datapath, 
+                        batch_size=32, 
+                        num_workers = 8, 
+                        directionality = True,
+                        context_length = 500,
+                        padding_idx = 0,
+                        special_token_num = 4,
+                        n_bins = 50,
+                        sep_token = 1949,
+                        cls_token = 1
+                        ):
+        super().__init__()
+        self.datapath = datapath
+        self.batch_size = batch_size
+        self.dataset = None
+        self.resume_index = 0
+        self.collator = CustomDataCollator(directionality, context_length, padding_idx, special_token_num, n_bins, sep_token, cls_token)
+        self.num_workers = num_workers
+    def setup(self, stage=None):
+        self.dataset = DynamicHuggingFaceDataset(self.datapath, 'train', resume_index=self.resume_index)
+
+    def train_dataloader(self):
+        return DataLoader(self.dataset, batch_size=self.batch_size, collate_fn=self.collator, num_workers=self.num_workers)
+
+    def val_dataloader(self):
+        self.dataset = DynamicHuggingFaceDataset(self.datapath, 'test', resume_index=self.resume_index)
+        return DataLoader(self.dataset, batch_size=self.batch_size, collate_fn=self.collator, num_workers=self.num_workers)
+
+    def load_state(self, filepath):
+        state = torch.load(filepath)
+        self.resume_index = state['resume_index']
+        self.dataset.set_state(self.resume_index)
+
+    def save_state(self, filepath):
+        torch.save({'resume_index': self.dataset.get_state()}, filepath)
+
+
 
 def create_dataloader(datapath, num_workers, batch_size, directionality, context_length, padding_idx, special_token_num, n_bins, sep_token, cls_token):
     # Instantiate the training dataset

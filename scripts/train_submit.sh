@@ -10,7 +10,7 @@
 #number of cpus we want to allocate for each program
 #We expect that our program should not run longer than 2 days
 #Note that a program will be killed once it exceeds this time!
-#SBATCH --time=1-00:00:00
+#SBATCH --time=10:00:00
 #SBATCH --output=train_pair_model2_%j.out
 
 

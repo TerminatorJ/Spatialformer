@@ -6,8 +6,18 @@
 
 /david_data/*
 
-/downstream/*
-
+/downstream/cell_cell_communication/data/*
+/downstream/cell_types_nich_annotation/cell_type_rawdata/*
+/downstream/cell_types_nich_annotation/data/*
+/downstream/cell_types_nich_annotation/figures
+/downstream/cell_types_nich_annotation/subcellular_localization_prediction/data/*
+/downstream/cell_types_nich_annotation/subcellular_localization_prediction/templates/*
+/downstream/cell_types_nich_annotation/subcellular_localization_prediction/*.csv
+/downstream/cell_types_nich_annotation/subcellular_localization_prediction/transcripts_genesamepatterns.csv
+/downstream/cell_types_nich_annotation/subcellular_localization_prediction/data/graph_list.pkl
+/downstream/subcellular_localization_prediction/data/graph_list.pkl
+/downstream/subcellular_localization_prediction/templates/
+/downstream/subcellular_localization_prediction/transcripts_genesamepatterns.csv
 /Figures/*
 
 /output/*

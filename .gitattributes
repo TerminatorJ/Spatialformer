@@ -1,0 +1,2 @@
+downstream/subcellular_localization_prediction/data/graph_list.pkl filter=lfs diff=lfs merge=lfs -text
+downstream/subcellular_localization_prediction/transcripts_genesamepatterns.csv filter=lfs diff=lfs merge=lfs -text

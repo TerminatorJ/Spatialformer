@@ -280,7 +280,12 @@ class CustomDataModule(LightningDataModule):
     def save_state(self, filepath):
         torch.save({'resume_index': self.dataset.get_state()}, filepath)
 
+def create_dataloader_eval(datapath, num_workers, batch_size, directionality, context_length, padding_idx, special_token_num, n_bins, sep_token, cls_token):
 
+    iter_dataset = DynamicHuggingFaceDatasetEval(datapath)
+    collator = CustomDataCollator(directionality, context_length, padding_idx, special_token_num, n_bins, sep_token, cls_token)
+    dataloader = DataLoader(iter_dataset, batch_size = batch_size,collate_fn=collator, num_workers=num_workers)
+    return dataloader
 
 def create_dataloader(datapath, num_workers, batch_size, directionality, context_length, padding_idx, special_token_num, n_bins, sep_token, cls_token):
     # Instantiate the training dataset

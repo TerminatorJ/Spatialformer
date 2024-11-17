@@ -155,7 +155,7 @@ class DynamicHuggingFaceDatasetEval(IterableDataset):
         except FileNotFoundError:
             print(f"{self.datapath} is not a valid dataset")
 
-        iter_dataset = dataset.to_iterable_dataset(num_shards=64)
+        iter_dataset = dataset.to_iterable_dataset(num_shards=64).shuffle(buffer_size=10_000, seed=42)
 
         yield from iter_dataset 
 

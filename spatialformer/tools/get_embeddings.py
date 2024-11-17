@@ -3,6 +3,7 @@ import json
 import numpy as np
 from tqdm import tqdm
 import os
+import random
 from datetime import datetime
 import logging
 import json
@@ -84,15 +85,101 @@ def embed_data(adata,
                 last_hidden_repr, probabilities = model.get_embeddings(batch, [-1], True, False)
                 cls_embeddings = last_hidden_repr[0][:,0]
                 all_embeddings.append(cls_embeddings)
-                probabilities = probabilities.detach().cpu().numpy()
-                all_prob.append(probabilities)
+                # probabilities = probabilities.detach().cpu().numpy()
+                #calculating the reverse pair results
+                rev_batch = rearrange_sentences(batch)
+                rev_last_hidden_repr, rev_probabilities = model.get_embeddings(rev_batch, [-1], True, False)
+                # import pdb; pdb.set_trace()
+                result_tensors = list(map(lambda x, y: process_tensors(x, y), probabilities, rev_probabilities))
+                confirm_prob = torch.stack(result_tensors).detach().cpu().numpy()
+                all_prob.append(confirm_prob)
             combined_embeddings = torch.concat(all_embeddings).detach().cpu().numpy()
-        adata.obsm["X_SpaF"] = combined_embeddings
+        import pdb; pdb.set_trace()
+        # adata.obsm["X_SpaF"] = combined_embeddings
 
         return combined_embeddings, all_prob
+def process_tensors(tensor1, tensor2):
+    # Ensure inputs are tensors
+    if not isinstance(tensor1, torch.Tensor) or not isinstance(tensor2, torch.Tensor):
+        raise ValueError("Both inputs must be PyTorch tensors.")
 
+    # Verify that both tensors have exactly two elements
+    if tensor1.numel() != 2 or tensor2.numel() != 2:
+        raise ValueError("Both tensors must contain exactly two elements.")
 
+    # Check if both tensors have the order element2 > element1
+    are_tensor1_aligned = tensor1[1] > tensor1[0]
+    are_tensor2_aligned = tensor2[1] > tensor2[0]
 
+    # Process based on the conditions
+    if are_tensor1_aligned and are_tensor2_aligned:
+        # Both tensors are aligned, so randomly choose one
+        chosen_tensor = random.choice([tensor1, tensor2])
+    else:
+        # Neither tensor is aligned, choose based on the first element
+        if tensor1[0] > tensor1[1]:
+            chosen_tensor = tensor1
+        elif tensor2[0] > tensor2[1]:
+            chosen_tensor = tensor2
+
+    return chosen_tensor
+
+def rearrange_sentences(batch):
+    # Extract the relevant tensors from the batch dictionary
+    batch_size = len(batch['indices'])
+    max_length = 500
+    indices = batch['indices']
+    mask_attentions = batch['attention_mask']  # Corrected to match your input
+    token_types = batch['token_type_ids']  # Corrected field names
+    new_indices = torch.full((batch_size, max_length), 0, dtype=torch.int)
+    new_mask_attention = torch.full((batch_size, max_length), 0, dtype=torch.int)
+    new_token_types = torch.full((batch_size, max_length), 0, dtype=torch.int)
+
+    sep_token = 1949  # This is the token ID for the separator
+
+    for i, (indice, mask_attention, token_type) in enumerate(zip(indices, mask_attentions, token_types)):
+        # Find the index of the separator token (1949)
+#         print("batch_size", batch_size)
+        mid_index = (indice == sep_token).nonzero(as_tuple=True)[0][0]
+        end_index = (indice == sep_token).nonzero(as_tuple=True)[0][1]
+        if mid_index.numel() == 0:  # Check if SEP token is present
+            print(f"Warning: SEP token not found in batch index {i}.")
+            continue  # Skip to the next batch if no SEP token is found
+        
+        # Split the indices into two sentences
+        cls = indice[:1]  # Include the CLS token
+        sentence1 = indice[1:mid_index + 1]  # From index 1 to the SEP token (inclusive)
+        sentence2 = indice[mid_index + 1:end_index+1]   # From the token after the SEP to the end
+        # Combine to form the new order: sentence2 followed by sentence1
+        combined = torch.cat((cls, sentence2, sentence1))
+        
+        # Pad to the max_length
+        new_sequence = torch.cat((combined, torch.zeros(max_length - combined.size(0), dtype=torch.int)))
+#         print(new_sequence)
+        # Update new_indices
+        new_indices[i, :] = new_sequence[:max_length]  # Ensure to only keep the first max_length tokens
+
+        # Update the attention mask
+        new_mask_attention[i, :] = mask_attention  
+
+        # Update the token type IDs
+        left_token_type = torch.full((len(cls)+len(sentence2),), 1)  # Token type for the second sentence
+        right_token_type = torch.full((len(sentence1),), 2)  # Token type for the first sentence
+        pad_token_type = torch.full((max_length - combined.size(0),), 0)  # Padding type
+        # Combine token types
+        new_token_type = torch.cat((left_token_type, right_token_type, pad_token_type))
+
+        # Update new_token_types
+        new_token_types[i, :] = new_token_type[:max_length]
+
+    # Put it all back in a dictionary
+    new_batch = {
+        "indices": new_indices,  # Add batch dimension
+        "attention_mask": new_mask_attention.bool(),  # Add batch dimension
+        "token_type_ids": new_token_types,  # Add batch dimension
+    }
+    
+    return new_batch
 
 
 

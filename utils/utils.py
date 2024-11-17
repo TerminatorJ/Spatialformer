@@ -7,6 +7,7 @@ import numpy as np
 from communities.algorithms import louvain_method
 import networkx as nx
 import torch
+import time
 from tqdm import tqdm
 from datasets.distributed import split_dataset_by_node
 # import torch_geometric
@@ -262,7 +263,9 @@ class DynamicHuggingFaceDataset(IterableDataset):
 
     def __iter__(self):
         rank = torch.distributed.get_rank()  # Get current process rank
-        random.seed(rank)
+        # random.seed(rank)
+        dynamic_seed = rank + int(time.time() * 1000) 
+        random.seed(dynamic_seed)
         while True:  # Continuous iteration
             
             datasets_path = random.choice(self.datasets_paths)  #  choose a dataset path
@@ -305,6 +308,26 @@ class DynamicHuggingFaceDataset(IterableDataset):
     def get_state(self):
         return self.current_index
  
+class DynamicHuggingFaceDatasetEval(IterableDataset):
+    def __init__(self, datapath):
+        '''
+        huggingface dataset
+        '''
+        self.datapath  = datapath
+    def load_dataset(self, path):
+        dataset = load_from_disk(path)
+        return dataset
+
+    def __iter__(self):
+
+        try:
+            dataset = self.load_dataset(self.datapath)
+        except FileNotFoundError:
+            print(f"{self.datapath} is not a valid dataset")
+
+        iter_dataset = dataset.to_iterable_dataset(num_shards=64).shuffle(buffer_size=10_000)
+
+        yield from iter_dataset 
 
 
 class GetPairs(Dataset):

@@ -11,10 +11,12 @@ The data involve in this project include two main parts:
 We programmly download the data from the 10X data repository and GEO website by running the following scripts.
 
 ```shell
-bash run1.sh && bach run2.sh && bach run3.sh &&bach run4.sh &&
+bash run1.sh && bach run2.sh && bach run3.sh && bach run4.sh
 ```
 
 For all the pulmonary fibrosis dataset, please refer to the GEO dataset with accession number GSE250346. The GEO dataset comprises all the data from 25 slides, including H&E images, expression count matrices, and standard Xenium output files.
+
+The overview of all the details of the original dataset used for SpatialFormer can be retrieved in Supplementary File 1 of the paper.
 
 
 

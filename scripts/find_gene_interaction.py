@@ -24,55 +24,81 @@ from tqdm import tqdm
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 class GeneInteractionProcessor:
-    def __init__(self, threshold, gene_threshold, gene_repeat, radius, pair_threshold, number_cell, transcript_file, h5_file_path):
+    '''
+    A class to process gene interaction data, filtering and preparing it 
+    for analysis of cell-cell interactions based on specified thresholds and 
+    parameters.
+    Attributes:
+    ----------
+    threshold : int
+        The minimum number of transcripts in a cell required for a cell to be considered in the analysis.
+    h5_file_path : str
+        The file path to save the processed data in HDF5 format.
+    transcript_file : str
+        The path to the transcript CSV file (can be gzipped). This file originally from the Xenium platform.
+
+    Methods:
+    -------
+    load_and_preprocess_data():
+        Loads the transcript data and performs preprocessing, including filtering based on gene expression 
+        thresholds and logging relevant statistics.
+    '''
+
+    def __init__(self, threshold, transcript_file, h5_file_path):
+        '''
+        Initializes the GeneInteractionProcessor with specified parameters.
+        Parameters:
+        ----------
+        threshold : int
+            Minimum transcript count threshold for keeping cells.
+        transcript_file : str
+            Path to the CSV file containing transcript data.
+        h5_file_path : str
+            Path to save the processed data as an HDF5 file.
+        '''
         self.threshold = threshold
-        self.radius = radius
-        self.pair_threshold = pair_threshold
-        self.number_cell = number_cell
         self.lung_annot_3D_tx_filtered = None
         self.genes = None
         self.h5_file_path = h5_file_path
         self.transcript_file = transcript_file
-        self.gene_threshold = gene_threshold
-        self.gene_repeat = gene_repeat
 
     def load_and_preprocess_data(self):
+        """
+        Loads and preprocesses the transcript data from the specified file.
+
+        This method reads the transcript file, filters the data based on expression thresholds, 
+        and performs any necessary transformations. It logs relevant statistics regarding the 
+        number of cells and genes retained after filtering. The processed DataFrame is stored in 
+        the lung_annot_3D_tx_filtered attribute, and an empty HDF5 file is created at the specified path.
+
+        Raises:
+        ------
+        FileNotFoundError:
+            If the transcript file cannot be found.
+        ValueError:
+            If the filtering criteria do not match available data.
+        """
         if self.transcript_file[-2:] == "gz":
             # import pdb; pdb.set_trace()
             lung_annot_3D_tx = pd.read_csv(self.transcript_file, compression='gzip') 
         else:
             lung_annot_3D_tx = pd.read_csv(self.transcript_file)
         lung_annot_3D_tx.rename(columns={'x_location': 'x', 'y_location': 'y', 'z_location': 'z', 'feature_name': 'gene'}, inplace=True)
-        
-        
-        #filter genes and cells level
-        # import pdb; pdb.set_trace()
 
         #filter by gene level
         self.lung_annot_3D_tx_filtered = lung_annot_3D_tx[~(lung_annot_3D_tx['gene'].str.startswith('Neg') | lung_annot_3D_tx['gene'].str.startswith('BLANK') | lung_annot_3D_tx['gene'].str.startswith('Unassigned'))]
-        #also filter out the cell with gene number less than 10
-        # gene_counts = self.lung_annot_3D_tx_filtered.groupby('cell_id')['gene'].nunique().reset_index(name='unique_gene_count')
-        # self.lung_annot_3D_tx_filtered = self.lung_annot_3D_tx_filtered[self.lung_annot_3D_tx_filtered['cell_id'].isin(gene_counts["cell_id"][gene_counts["unique_gene_count"] >= self.gene_threshold])]
-        #get mean count of all gene in the same cell
-        # genet_counts = self.lung_annot_3D_tx_filtered.groupby(['cell_id', 'gene']).size().reset_index(name='count')
-        # mean_gene_count = genet_counts.groupby('cell_id')['count'].mean().reset_index(name='mean_gene_count')
-        # self.lung_annot_3D_tx_filtered = self.lung_annot_3D_tx_filtered[self.lung_annot_3D_tx_filtered['cell_id'].isin(mean_gene_count["cell_id"][mean_gene_count["mean_gene_count"] >= self.gene_repeat])]
 
-        #filter by transcript level
-        # self.lung_annot_3D_tx_filtered = self.lung_annot_3D_tx_filtered[self.lung_annot_3D_tx_filtered["qv"] > 20]
         value_counts = self.lung_annot_3D_tx_filtered['cell_id'].value_counts()
         try:
             clean_value_counts = value_counts.drop("UNASSIGNED")
             self.lung_annot_3D_tx_filtered = self.lung_annot_3D_tx_filtered[self.lung_annot_3D_tx_filtered['cell_id'].isin(clean_value_counts.index[clean_value_counts >= self.threshold])]
         except:
             self.lung_annot_3D_tx_filtered = self.lung_annot_3D_tx_filtered[self.lung_annot_3D_tx_filtered['cell_id'].isin(value_counts.index[value_counts >= self.threshold])]
-        # import pdb; pdb.set_trace()
         kept_cells_num = len(self.lung_annot_3D_tx_filtered['cell_id'].unique())
         
         final_value_counts = self.lung_annot_3D_tx_filtered['cell_id'].value_counts()
         # print(self.lung_annot_3D_tx_filtered['gene'].unique())
         self.genes = list(self.lung_annot_3D_tx_filtered["gene"].unique())
-        # import pdb; pdb.set_trace()
         logging.info(f"The number of cells that are kept: {kept_cells_num}")
         logging.info(f"Mean transcripts per cell: {np.mean(final_value_counts)}")
         logging.info(f"Total transcripts left: {np.sum(final_value_counts)}")
@@ -85,6 +111,28 @@ class GeneInteractionProcessor:
     
 
 def calculate_func(cell_id):
+    """
+    Calculate the K-Nearest Neighbors (KNN) graph and gene matrices for a given cell ID.
+
+    This function constructs a KNN radius graph using the specified cell ID and extracts gene binary 
+    and frequency matrices, as well as a coordinate matrix. 
+
+    Parameters:
+    ----------
+    cell_id : str
+        The identifier of the cell for which the KNN graph is to be calculated.
+
+    Returns:
+    -------
+    tuple
+        A tuple containing the cell ID, the coordinate matrix, and the total number of gene pairs 
+        (divided by two) if successful; otherwise, a tuple of (cell_id, None) on failure.
+
+    Raises:
+    ------
+    Exception:
+        Logs an error if processing the specified cell ID fails.
+    """
     try:
         data_graph = KNN_Radius_Graph(radius=radius, dataset=lung_annot_3D_tx_filtered, is_3D=True, cell_ID=cell_id, ref_gene=genes)
         gene_binary_matrix, gene_freq_matrix, trans_matrix = data_graph.get_gene_matrix(pair_threshold=pair_threshold, self_threshold=pair_threshold, plot=False)
@@ -97,6 +145,29 @@ def calculate_func(cell_id):
         return (cell_id, None)
 
 def write_to_hdf5(results, h5_file_path):
+    """
+    Write results to an HDF5 file.
+
+    This function saves the coordinate matrix and associated data for each cell ID in the specified 
+    HDF5 file path. Each cell ID has its own group within the file, containing datasets for the 
+    coordinates and their shape.
+
+    Parameters:
+    ----------
+    results : list of tuples
+        A list where each tuple contains a cell ID, a coordinate matrix, and the number of gene pairs.
+    h5_file_path : str
+        The file path where the HDF5 file will be created or appended.
+
+    Returns:
+    -------
+    None
+
+    Raises:
+    ------
+    IOError:
+        If there is an error opening or writing to the specified HDF5 file.
+    """
     with h5py.File(h5_file_path, 'a') as f:
         for cell_id, coo_matrix, pair_num in results:
             if coo_matrix is not None:
@@ -111,8 +182,6 @@ def write_to_hdf5(results, h5_file_path):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='calculate the gene-gene interaction')
     parser.add_argument('--threshold', type=int, default=30, help='the threshold of transcripts for filtering the cells')
-    parser.add_argument('--gene_threshold', type=int, default=10, help='the minimum number of gene for each cells')
-    parser.add_argument('--gene_repeat', type=int, default=2, help='the number of transcript for each gene')
     parser.add_argument('--radius', type=int, default=5, help='the radius to separate compartments')
     parser.add_argument('--pair_threshold', type=int, default=3, help='the pair threshold for the same transcripts and different transcripts')
     parser.add_argument('--number_cell', type=int, default=2, help='number of cells that are used to calculate, this can be useful for debugging the codes and gene-gene pipeline')
@@ -120,7 +189,6 @@ if __name__ == "__main__":
     parser.add_argument('--partition', type=int, default=1, help='The partition of cell_id that are used to run separately')
     parser.add_argument('--chunks', type=int, default=20000, help='The number of chunks for dividing the cell_ids')
     parser.add_argument('--dataname', type=str, default=None, help='The overall name of the dataset')
-    parser.add_argument('--datapath_name', type=str, default="david_data", help='The name of the data path that is used to store all the raw and processed dataset')
     args = parser.parse_args()
     erda_path = "/tmp/erda/Spatialformer/downloaded_data/processed"
 
@@ -129,7 +197,7 @@ if __name__ == "__main__":
     #adding the partitions information
     
     h5_file_path = h5_file_path.split(".")[0] + "_" + str(args.partition) + "." + h5_file_path.split(".")[2]
-    processor = GeneInteractionProcessor(args.threshold, args.gene_threshold, args.gene_repeat, args.radius, args.pair_threshold, args.number_cell, args.transcript_file, h5_file_path)
+    processor = GeneInteractionProcessor(args.threshold, args.transcript_file, h5_file_path)
     processor.load_and_preprocess_data()
     global lung_annot_3D_tx_filtered
     global radius
@@ -175,122 +243,3 @@ if __name__ == "__main__":
     logging.info(f"Processing completed. Success: {success_count}, Failure: {failure_count}")
 
     
-
-
-#for the new downloaded dataset
-
-# python find_gene_interaction.py --transcript_file /tmp/erda/Spatialformer/downloaded_data/raw/Xenium_V1_hBoneMarrow_nondiseased_section_outs/transcripts.csv.gz --number_cell 84518 --partition 1 --dataname Xenium_50
-
-
-
-#python find_gene_interaction.py --number_cell 113460 --partition 6
-#testing the david dataset
-#for THD0008: 3 partitions
-#python find_gene_interaction.py --transcript_file /scratch/project_465001027/spatialformer/david_data/relabel_output-XETG00048__0003392__THD0008__20230313__191400/outs/transcripts.csv --number_cell 57889 --partition 1 --dataname THD0008
-#python find_gene_interaction.py --transcript_file /scratch/project_465001027/spatialformer/david_data/relabel_output-XETG00048__0003392__THD0008__20230313__191400/outs/transcripts.csv --number_cell 57889 --partition 2 --dataname THD0008
-#python find_gene_interaction.py --transcript_file /scratch/project_465001027/spatialformer/david_data/relabel_output-XETG00048__0003392__THD0008__20230313__191400/outs/transcripts.csv --number_cell 57889 --partition 3 --dataname THD0008
-
-
-#for VUILD106: 6 partitions
-#python find_gene_interaction.py --transcript_file /scratch/project_465001027/spatialformer/david_data/relabel_output-XETG00048__0003392__VUILD106__20230313__191400/outs/transcripts.csv --number_cell 105595 --partition 1 --dataname VUILD106
-#python find_gene_interaction.py --transcript_file /scratch/project_465001027/spatialformer/david_data/relabel_output-XETG00048__0003392__VUILD106__20230313__191400/outs/transcripts.csv --number_cell 105595 --partition 2 --dataname VUILD106
-#python find_gene_interaction.py --transcript_file /scratch/project_465001027/spatialformer/david_data/relabel_output-XETG00048__0003392__VUILD106__20230313__191400/outs/transcripts.csv --number_cell 105595 --partition 3 --dataname VUILD106
-#python find_gene_interaction.py --transcript_file /scratch/project_465001027/spatialformer/david_data/relabel_output-XETG00048__0003392__VUILD106__20230313__191400/outs/transcripts.csv --number_cell 105595 --partition 4 --dataname VUILD106
-#python find_gene_interaction.py --transcript_file /scratch/project_465001027/spatialformer/david_data/relabel_output-XETG00048__0003392__VUILD106__20230313__191400/outs/transcripts.csv --number_cell 105595 --partition 5 --dataname VUILD106
-#python find_gene_interaction.py --transcript_file /scratch/project_465001027/spatialformer/david_data/relabel_output-XETG00048__0003392__VUILD106__20230313__191400/outs/transcripts.csv --number_cell 105595 --partition 6 --dataname VUILD106
-
-#for VUILD110: 6 partitions
-#python find_gene_interaction.py --transcript_file /scratch/project_465001027/spatialformer/david_data/relabel_output-XETG00048__0003392__VUILD110__20230313__191400/outs/transcripts.csv --number_cell 106851 --partition 1 --dataname VUILD110
-#python find_gene_interaction.py --transcript_file /scratch/project_465001027/spatialformer/david_data/relabel_output-XETG00048__0003392__VUILD110__20230313__191400/outs/transcripts.csv --number_cell 106851 --partition 2 --dataname VUILD110
-#python find_gene_interaction.py --transcript_file /scratch/project_465001027/spatialformer/david_data/relabel_output-XETG00048__0003392__VUILD110__20230313__191400/outs/transcripts.csv --number_cell 106851 --partition 3 --dataname VUILD110
-#python find_gene_interaction.py --transcript_file /scratch/project_465001027/spatialformer/david_data/relabel_output-XETG00048__0003392__VUILD110__20230313__191400/outs/transcripts.csv --number_cell 106851 --partition 4 --dataname VUILD110
-#python find_gene_interaction.py --transcript_file /scratch/project_465001027/spatialformer/david_data/relabel_output-XETG00048__0003392__VUILD110__20230313__191400/outs/transcripts.csv --number_cell 106851 --partition 5 --dataname VUILD110
-#python find_gene_interaction.py --transcript_file /scratch/project_465001027/spatialformer/david_data/relabel_output-XETG00048__0003392__VUILD110__20230313__191400/outs/transcripts.csv --number_cell 106851 --partition 6 --dataname VUILD110
-
-#for VUILD115: 4 partitions
-#python find_gene_interaction.py --transcript_file /scratch/project_465001027/spatialformer/david_data/relabel_output-XETG00048__0003392__VUILD115__20230313__191400/outs/transcripts.csv --number_cell 68718 --partition 1 --dataname VUILD115
-#python find_gene_interaction.py --transcript_file /scratch/project_465001027/spatialformer/david_data/relabel_output-XETG00048__0003392__VUILD115__20230313__191400/outs/transcripts.csv --number_cell 68718 --partition 2 --dataname VUILD115
-#python find_gene_interaction.py --transcript_file /scratch/project_465001027/spatialformer/david_data/relabel_output-XETG00048__0003392__VUILD115__20230313__191400/outs/transcripts.csv --number_cell 68718 --partition 3 --dataname VUILD115
-#python find_gene_interaction.py --transcript_file /scratch/project_465001027/spatialformer/david_data/relabel_output-XETG00048__0003392__VUILD115__20230313__191400/outs/transcripts.csv --number_cell 68718 --partition 4 --dataname VUILD115
-
-#for THD0011: 1 partition
-#python find_gene_interaction.py --transcript_file /scratch/project_465001027/spatialformer/david_data/relabel_output-XETG00048__0003400__THD0011__20230313__191400/outs/transcripts.csv --number_cell 14372 --partition 1 --dataname THD0011
-
-#for TILD117LF: 2 partitions
-#python find_gene_interaction.py --transcript_file /scratch/project_465001027/spatialformer/david_data/relabel_output-XETG00048__0003400__TILD117LF__20230313__191400/outs/transcripts.csv --number_cell 33699 --partition 1 --dataname TILD117LF
-#python find_gene_interaction.py --transcript_file /scratch/project_465001027/spatialformer/david_data/relabel_output-XETG00048__0003400__TILD117LF__20230313__191400/outs/transcripts.csv --number_cell 33699 --partition 2 --dataname TILD117LF
-
-#for TILD117MF: 3 partitions
-#python find_gene_interaction.py --transcript_file /scratch/project_465001027/spatialformer/david_data/relabel_output-XETG00048__0003400__TILD117MF__20230313__191400/outs/transcripts.csv --number_cell 46075 --partition 1 --dataname TILD117MF
-#python find_gene_interaction.py --transcript_file /scratch/project_465001027/spatialformer/david_data/relabel_output-XETG00048__0003400__TILD117MF__20230313__191400/outs/transcripts.csv --number_cell 46075 --partition 2 --dataname TILD117MF
-#python find_gene_interaction.py --transcript_file /scratch/project_465001027/spatialformer/david_data/relabel_output-XETG00048__0003400__TILD117MF__20230313__191400/outs/transcripts.csv --number_cell 46075 --partition 3 --dataname TILD117MF
-
-#for TILD175: 2 partitions
-#python find_gene_interaction.py --transcript_file /scratch/project_465001027/spatialformer/david_data/relabel_output-XETG00048__0003400__TILD175__20230313__191400/outs/transcripts.csv --number_cell 32849 --partition 1 --dataname TILD175
-#python find_gene_interaction.py --transcript_file /scratch/project_465001027/spatialformer/david_data/relabel_output-XETG00048__0003400__TILD175__20230313__191400/outs/transcripts.csv --number_cell 32849 --partition 2 --dataname TILD175
-
-#for VUILD78LF: 1 partition
-#python find_gene_interaction.py --transcript_file /scratch/project_465001027/spatialformer/david_data/relabel_output-XETG00048__0003400__VUILD78LF__20230313__191400/outs/transcripts.csv --number_cell 16292 --partition 1 --dataname VUILD78LF
-
-#for VUILD78MF: 1 partition
-#python find_gene_interaction.py --transcript_file /scratch/project_465001027/spatialformer/david_data/relabel_output-XETG00048__0003400__VUILD78MF__20230313__191400/outs/transcripts.csv --number_cell 17491 --partition 1 --dataname VUILD78MF
-
-#for VUILD91LF: 1 partition
-#python find_gene_interaction.py --transcript_file /scratch/project_465001027/spatialformer/david_data/relabel_output-XETG00048__0003400__VUILD91LF__20230313__191400/outs/transcripts.csv --number_cell 15232 --partition 1 --dataname VUILD91LF
-
-
-#for VUILD91MF:  2 partition
-#python find_gene_interaction.py --transcript_file /scratch/project_465001027/spatialformer/david_data/relabel_output-XETG00048__0003400__VUILD91MF__20230313__191400/outs/transcripts.csv --number_cell 23599 --partition 1 --dataname VUILD91MF
-#python find_gene_interaction.py --transcript_file /scratch/project_465001027/spatialformer/david_data/relabel_output-XETG00048__0003400__VUILD91MF__20230313__191400/outs/transcripts.csv --number_cell 23599 --partition 2 --dataname VUILD91MF
-
-#for VUHD069:  1 partition
-#python find_gene_interaction.py --transcript_file /scratch/project_465001027/spatialformer/david_data/relabel_output-XETG00048__0003789__VUHD069__20230308__003731/outs/transcripts.csv --number_cell 16840 --partition 1 --dataname VUHD069
-
-#for VUHD095:  1 partition
-#python find_gene_interaction.py --transcript_file /scratch/project_465001027/spatialformer/david_data/relabel_output-XETG00048__0003789__VUHD095__20230308__003731/outs/transcripts.csv --number_cell 7875 --partition 1 --dataname VUHD095
-
-#for VUHD113: 1 partition
-#python find_gene_interaction.py --transcript_file /scratch/project_465001027/spatialformer/david_data/relabel_output-XETG00048__0003789__VUHD113__20230308__003731/outs/transcripts.csv --number_cell 11746 --partition 1 --dataname VUHD113
-
-#for VUILD48MF: 2 partition
-#python find_gene_interaction.py --transcript_file /scratch/project_465001027/spatialformer/david_data/relabel_output-XETG00048__0003789__VUILD48MF__20230308__003731/outs/transcripts.csv --number_cell 26485 --partition 1 --dataname VUILD48MF
-#python find_gene_interaction.py --transcript_file /scratch/project_465001027/spatialformer/david_data/relabel_output-XETG00048__0003789__VUILD48MF__20230308__003731/outs/transcripts.csv --number_cell 26485 --partition 2 --dataname VUILD48MF
-
-#for VUILD104LF: 2 partition
-#python find_gene_interaction.py --transcript_file /scratch/project_465001027/spatialformer/david_data/relabel_output-XETG00048__0003789__VUILD104LF__20230308__003731/outs/transcripts.csv --number_cell 28243 --partition 1 --dataname VUILD104LF
-#python find_gene_interaction.py --transcript_file /scratch/project_465001027/spatialformer/david_data/relabel_output-XETG00048__0003789__VUILD104LF__20230308__003731/outs/transcripts.csv --number_cell 28243 --partition 2 --dataname VUILD104LF
-
-#for VUILD105MF: 1 partition
-#python find_gene_interaction.py --transcript_file /scratch/project_465001027/spatialformer/david_data/relabel_output-XETG00048__0003789__VUILD105MF__20230308__003731/outs/transcripts.csv --number_cell 17434 --partition 1 --dataname VUILD105MF
-
-#for VUHD116A: 1 partition
-#python find_gene_interaction.py --transcript_file /scratch/project_465001027/spatialformer/david_data/relabel_output-XETG00048__0003817__VUHD116A__20230308__003730/outs/transcripts.csv --number_cell 10914 --partition 1 --dataname VUHD116A
-
-#for VUHD116B: 2 partitions
-#python find_gene_interaction.py --transcript_file /scratch/project_465001027/spatialformer/david_data/relabel_output-XETG00048__0003817__VUHD116B__20230308__003731/outs/transcripts.csv --number_cell 22671 --partition 1 --dataname VUHD116B
-#python find_gene_interaction.py --transcript_file /scratch/project_465001027/spatialformer/david_data/relabel_output-XETG00048__0003817__VUHD116B__20230308__003731/outs/transcripts.csv --number_cell 22671 --partition 2 --dataname VUHD116B
-
-#for VUILD96LF: 3 partitions
-#python find_gene_interaction.py --transcript_file /scratch/project_465001027/spatialformer/david_data/relabel_output-XETG00048__0003817__VUILD96LF__20230308__003730/outs/transcripts.csv --number_cell 41156 --partition 1 --dataname VUILD96LF
-#python find_gene_interaction.py --transcript_file /scratch/project_465001027/spatialformer/david_data/relabel_output-XETG00048__0003817__VUILD96LF__20230308__003730/outs/transcripts.csv --number_cell 41156 --partition 2 --dataname VUILD96LF
-#python find_gene_interaction.py --transcript_file /scratch/project_465001027/spatialformer/david_data/relabel_output-XETG00048__0003817__VUILD96LF__20230308__003730/outs/transcripts.csv --number_cell 41156 --partition 3 --dataname VUILD96LF
-
-#for VUILD96MF:  3 partitions
-#python find_gene_interaction.py --transcript_file /scratch/project_465001027/spatialformer/david_data/relabel_output-XETG00048__0003817__VUILD96MF__20230308__003730/outs/transcripts.csv --number_cell 50504 --partition 1 --dataname VUILD96MF
-#python find_gene_interaction.py --transcript_file /scratch/project_465001027/spatialformer/david_data/relabel_output-XETG00048__0003817__VUILD96MF__20230308__003730/outs/transcripts.csv --number_cell 50504 --partition 2 --dataname VUILD96MF
-#python find_gene_interaction.py --transcript_file /scratch/project_465001027/spatialformer/david_data/relabel_output-XETG00048__0003817__VUILD96MF__20230308__003730/outs/transcripts.csv --number_cell 50504 --partition 3 --dataname VUILD96MF
-
-
-#for VUILD102LF: 2 partitions
-#python find_gene_interaction.py --transcript_file /scratch/project_465001027/spatialformer/david_data/relabel_output-XETG00048__0003817__VUILD102LF__20230308__003731/outs/transcripts.csv --number_cell 26017 --partition 1 --dataname VUILD102LF
-#python find_gene_interaction.py --transcript_file /scratch/project_465001027/spatialformer/david_data/relabel_output-XETG00048__0003817__VUILD102LF__20230308__003731/outs/transcripts.csv --number_cell 26017 --partition 2 --dataname VUILD102LF
-
-#for VUILD102MF: 2 partitions
-#python find_gene_interaction.py --transcript_file /scratch/project_465001027/spatialformer/david_data/relabel_output-XETG00048__0003817__VUILD102MF__20230308__003730/outs/transcripts.csv --number_cell 33247 --partition 1 --dataname VUILD102MF
-#python find_gene_interaction.py --transcript_file /scratch/project_465001027/spatialformer/david_data/relabel_output-XETG00048__0003817__VUILD102MF__20230308__003730/outs/transcripts.csv --number_cell 33247 --partition 2 --dataname VUILD102MF
-
-#for VUILD107MF: 4 partitions
-#python find_gene_interaction.py --transcript_file  /scratch/project_465001027/spatialformer/david_data/relabel_output-XETG00048__0003817__VUILD107MF__20230308__003731/outs/transcripts.csv --number_cell 60373 --partition 1 --dataname VUILD107MF
-#python find_gene_interaction.py --transcript_file  /scratch/project_465001027/spatialformer/david_data/relabel_output-XETG00048__0003817__VUILD107MF__20230308__003731/outs/transcripts.csv --number_cell 60373 --partition 2 --dataname VUILD107MF
-#python find_gene_interaction.py --transcript_file  /scratch/project_465001027/spatialformer/david_data/relabel_output-XETG00048__0003817__VUILD107MF__20230308__003731/outs/transcripts.csv --number_cell 60373 --partition 3 --dataname VUILD107MF
-#python find_gene_interaction.py --transcript_file  /scratch/project_465001027/spatialformer/david_data/relabel_output-XETG00048__0003817__VUILD107MF__20230308__003731/outs/transcripts.csv --number_cell 60373 --partition 4 --dataname VUILD107MF

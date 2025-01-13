@@ -19,7 +19,7 @@ import json
 import argparse
 from datasets import load_from_disk
 from torch.utils.data import ConcatDataset, Sampler, IterableDataset
-from utils import uniform_quantile_global, binning
+# from .utils import uniform_quantile_global, binning
 current_file_path = Path(__file__).resolve()
 p_path = current_file_path.parents[1]
 data_dir = os.path.join(p_path, "david_data")#
@@ -249,7 +249,7 @@ class filterdataset(IterableDataset):
             else:
                 pass
 
-def create_data_loaders(tokenized_datasets, batch_size=1, context_length=1500, special_token_num = 4, split_num = 2, directionality = True, n_bins = 51):
+def create_data_loaders(tokenized_datasets, cls_token = 1, sep_token = 1949,batch_size=1, context_length=1500, special_token_num = 4, split_num = 2, directionality = True, n_bins = 51):
     '''
     
     directionality: whether the pair-wise matrix should have the directionality. On the other word, the whether the token that is defined as co-localized
@@ -262,6 +262,8 @@ def create_data_loaders(tokenized_datasets, batch_size=1, context_length=1500, s
         def __init__(self, context_length, padding_idx=0):
             self.context_length = context_length
             self.padding_idx = padding_idx
+            self.cls_token = torch.tensor([cls_token])
+            self.sep_token = torch.tensor([sep_token])
             self.special_token_num = special_token_num
             # self.selection = selection
 
@@ -270,11 +272,11 @@ def create_data_loaders(tokenized_datasets, batch_size=1, context_length=1500, s
             # import pdb; pdb.set_trace()
             # if self.selection != None:
             #     batch = [torch.tensor(item['Gene_Gene_Matrix']) for item in batch if item["Full_Tokens"]]
-            
+            # torch.cat((token_tensor, value_to_add))
             gg_mtx = [torch.tensor(item['Gene_Gene_Matrix']) for item in batch]
             Full_Tokens = [torch.tensor(item['Full_Tokens']) for item in batch]
             raw_exp = [torch.tensor(item['Expression'][0]) for item in batch]
-            # annotation = [item['Annotations'] for item in batch]
+            annotations = [item['Annotations'] for item in batch]
             # niche_annotation = [item['Niche_Annotations'] for item in batch]
             # Norm_Exp = [torch.tensor(item['Normalized_Exp']) for item in batch]
             raw_genes = [item["Gene"] for item in batch]
@@ -295,7 +297,7 @@ def create_data_loaders(tokenized_datasets, batch_size=1, context_length=1500, s
             # import pdb; pdb.set_trace()
             full_tokens = torch.full((len(Full_Tokens), self.context_length), self.padding_idx, dtype=torch.int)
             for i, v in enumerate(Full_Tokens):
-                full_tokens[i,:v.size(0)-(4-special_token_num)] = v[4-special_token_num:]
+                full_tokens[i,:v.size(0)-(4-special_token_num)+len(self.cls_token)+len(self.sep_token)] = torch.cat([self.cls_token, v[4-special_token_num:], self.sep_token]) #add cls and sep to the token
             
             # import pdb; pdb.set_trace()
             full_exp = torch.full((len(Full_Tokens), self.context_length), self.padding_idx, dtype=torch.int)
@@ -304,29 +306,31 @@ def create_data_loaders(tokenized_datasets, batch_size=1, context_length=1500, s
             
 
 
-            norm_exp = torch.full((len(ranked_exp), self.context_length), self.padding_idx, dtype=torch.float)
-            try:
-                for i, e in enumerate(ranked_exp):
-                    # import pdb; pdb.set_trace()
-                    e = binning(
-                        row=e,
-                        n_bins=n_bins,
-                    )
+            # norm_exp = torch.full((len(ranked_exp), self.context_length), self.padding_idx, dtype=torch.float)
+            # try:
+            #     for i, e in enumerate(ranked_exp):
+            #         # import pdb; pdb.set_trace()
+            #         e = binning(
+            #             row=e,
+            #             n_bins=n_bins,
+            #         )
 
-                    norm_exp[i,self.special_token_num:self.special_token_num+e.size(0)] = e
-            except:
-                import pdb; pdb.set_trace()
-                pass
+            #         norm_exp[i,self.special_token_num:self.special_token_num+e.size(0)] = e
+            # except:
+            #     import pdb; pdb.set_trace()
+            #     pass
 
             # Pad sequences
             attention_masks = (full_tokens != self.padding_idx).bool()
-
+            #token type ids
+            token_type_ids = torch.ones_like(full_tokens, dtype=torch.int)
+            token_type_ids = attention_masks*token_type_ids
 
             # Pad 2D matrices
             gg_mtx_p = torch.full((len(gg_mtx), self.context_length, self.context_length), self.padding_idx, dtype=torch.float)
             for i, mat in enumerate(gg_mtx):
                 current_size = mat.shape[0]
-                gg_mtx_p[i, self.special_token_num:(current_size+self.special_token_num), self.special_token_num:(self.special_token_num+current_size)] = mat
+                gg_mtx_p[i, len(self.cls_token)+self.special_token_num:(len(self.cls_token)+current_size+self.special_token_num), len(self.cls_token)+self.special_token_num:(len(self.cls_token)+self.special_token_num+current_size)] = mat#add head and tail
 
             if not directionality:
                 rows_with_ones = torch.any(gg_mtx_p == 1, dim=2)
@@ -344,8 +348,9 @@ def create_data_loaders(tokenized_datasets, batch_size=1, context_length=1500, s
                 'adjmtx': gg_mtx_p,
                 'indices': full_tokens,
                 'attention_mask': attention_masks,
-                'normalized_exp': norm_exp,
-                "Expression": full_exp
+                "Expression": full_exp,
+                "token_type_ids": token_type_ids,
+                "Annotations": annotations
 
             }
     
@@ -361,7 +366,7 @@ def create_data_loaders(tokenized_datasets, batch_size=1, context_length=1500, s
         return train_dataloader, val_dataloader
     elif split_num == 1:
         
-        combined_dataloader = DataLoader(tokenized_datasets, collate_fn=data_collator, batch_size=batch_size)
+        combined_dataloader = DataLoader(tokenized_datasets, collate_fn=data_collator, batch_size=batch_size, shuffle=True)
         return combined_dataloader
 def get_dataset(data_path):
     data_name = data_path.split("/")[-1].split(".h5")[0]

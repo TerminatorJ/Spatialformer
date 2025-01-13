@@ -4,11 +4,15 @@ utils.py for focus
 import os
 import pandas as pd 
 import numpy as np
+
 from communities.algorithms import louvain_method
 import networkx as nx
 import torch
 import time
 from tqdm import tqdm
+from sklearn.model_selection import KFold
+
+from concurrent.futures import ProcessPoolExecutor
 from datasets.distributed import split_dataset_by_node
 # import torch_geometric
 # from torch_geometric.utils import to_undirected, to_dense_adj, remove_self_loops
@@ -23,17 +27,25 @@ import pickle
 import random
 from torch.utils.data import Dataset, IterableDataset
 from itertools import combinations
+from sklearn.model_selection import KFold
 from sklearn.model_selection import train_test_split
 from datasets import load_from_disk, interleave_datasets, concatenate_datasets
+from peft import LoraConfig, get_peft_model, TaskType
+
 # import logging
 
 
 
-def get_adj(sample_dataset, radius = 10, plot = False):
+def get_adj(sample_dataset, radius = 10, plot = False, sym = True):
     r_c = np.array(list(zip(sample_dataset["centroid_x"],sample_dataset["centroid_y"])))
+    #getting the cell types
+
     cell_ids = sample_dataset["Cell_Ids"]
     # r_c = np.array(df[['centroid_x', 'centroid_y']])
-    G = nx.Graph()
+    if sym:
+        G = nx.Graph()
+    else:
+        G = nx.DiGraph()
     kdtree = KDTree(r_c)
     # Add all nodes to the graph initially
     for i in range(len(r_c)):
@@ -217,10 +229,10 @@ class DynamicHuggingFaceDataset2(IterableDataset):
         #         yield from iter_pair_dataset
         # else:
         #     print("No valid datasets found in the current pair.")
-    def set_state(self, index):
-        self.current_index = index
-    def get_state(self):
-        return self.current_index
+    # def set_state(self, index):
+    #     self.current_index = index
+    # def get_state(self):
+    #     return self.current_index
 
 class NonRedundantSampler:
     def __init__(self, total_samples, batch_size):
@@ -246,28 +258,39 @@ class NonRedundantSampler:
 
 
 class DynamicHuggingFaceDataset(IterableDataset):
-    def __init__(self, datapath, split, resume_index):
+    def __init__(self, datapath, split):
         '''
         datapath: cache path
         split: which split to access ('train' or 'test')
         shuffle: whether to shuffle the dataset
         '''
-        self.current_index = resume_index
+        # self.current_index = resume_index
         all_files = os.listdir(datapath)  # Corrected method name
-        self.datasets_paths = [os.path.join(datapath, file) for file in all_files if file.endswith("pair")]
+        # self.datasets_paths = [os.path.join(datapath, file) for file in all_files if file.endswith("pair")] # train all the slides
+        self.datasets_paths = [os.path.join(datapath, file) for file in all_files if (("TIL" in file) & ("pair" in file)) or (("THD" in file) & ("pair" in file)) or (("VU" in file) & ("pair" in file))]
+        print("number of training slides:", len(self.datasets_paths))
+        # self.datasets_paths = [os.path.join(datapath, file) for file in all_files if file == "xenium_VUILD102LF_pair"]
         self.split = split
         self.yield_counter = 0 
     def load_dataset(self, path):
         dataset = load_from_disk(path)
         return dataset
+    def __len__(self):
+        counter = 0
+        for path in self.datasets_paths:
+            dataset = self.load_dataset(path)
+            counter += dataset.shape[0]
+        return counter
 
     def __iter__(self):
+        
         rank = torch.distributed.get_rank()  # Get current process rank
         # random.seed(rank)
-        dynamic_seed = rank + int(time.time() * 1000) 
+        dynamic_seed = rank + int(time.time()/1000) 
         random.seed(dynamic_seed)
+
         while True:  # Continuous iteration
-            
+            import pdb; pdb.set_trace()
             datasets_path = random.choice(self.datasets_paths)  #  choose a dataset path
             print("current datasets:", datasets_path)
             if "THD0008" not in datasets_path:
@@ -280,59 +303,240 @@ class DynamicHuggingFaceDataset(IterableDataset):
                 # Optionally limit the dataset size, or select a subset if needed
                 # dataset = dataset.select(range(1000))  # Load a subset for processing
                 # Determine the total number of samples available
-                # left_sample = 1500
+                # left_sample = 5000
                 total_samples = len(dataset)
                 n_samples = min(5000, total_samples)  # Ensure not to exceed available samples
 
-                # Randomly select 1000 samples
+                # Randomly select 5000 samples
                 selected_indices = np.random.choice(total_samples, size=n_samples, replace=False)
                 dataset = dataset.select(selected_indices)  # Load a subset for processing
                 split_dataset = dataset.train_test_split(test_size=0.001, seed=42)
 
                 if self.split == "train":
-                    iter_dataset = split_dataset["train"].to_iterable_dataset(num_shards=64).shuffle(buffer_size=10_000)
-                elif self.split == "test":
-                    iter_dataset = split_dataset["test"].to_iterable_dataset(num_shards=8)
+                    # import pdb; pdb.set_trace()
+                    print(split_dataset["train"])
+                    # iter_dataset = split_dataset["train"].to_iterable_dataset(num_shards=64).shuffle(buffer_size=10_000)#for randomization
+                    iter_dataset = split_dataset["train"].to_iterable_dataset()#
+                elif self.split == "val":
+                    # import pdb; pdb.set_trace()
+                    print(split_dataset["test"])
+                    # iter_dataset = split_dataset["test"].to_iterable_dataset(num_shards=1)
+                    iter_dataset = split_dataset["test"].to_iterable_dataset()
 
                 # Yield samples from the current dataset
                 for sample in iter_dataset:
+                    # import pdb; pdb.set_trace()
                     yield sample
-                    # self.yield_counter += 1  # Increment the yield counter
 
-                    # # Resample after every 100 yielded samples
-                    # if self.yield_counter >= 1000:
-                    #     self.yield_counter = 0  # Reset the counter
-                    #     break  # Exit loop to allow re-selection of dataset
-    def set_state(self, index):
-        self.current_index = index
-    def get_state(self):
-        return self.current_index
+class DynamicHuggingFaceDataset2(IterableDataset):
+    def __init__(self, datapath, split, gpu_num):
+        '''
+        datapath: cache path
+        split: which split to access ('train' or 'test')
+        shuffle: whether to shuffle the dataset
+        '''
+        # self.current_index = resume_index
+        all_files = os.listdir(datapath)  # Corrected method name
+        # self.datasets_paths = [os.path.join(datapath, file) for file in all_files if file.endswith("pair")] # train all the slides
+        self.datasets_paths = [os.path.join(datapath, file) for file in all_files if (("TIL" in file) & ("pair" in file)) or (("THD" in file) & ("pair" in file)) or (("VU" in file) & ("pair" in file))]
+        print("number of training slides:", len(self.datasets_paths))
+        counter = 0
+        for path in self.datasets_paths:
+            dataset = self.load_dataset(path)
+            counter += dataset.shape[0]
+        self.datasize = counter
+        # self.datasets_paths = [os.path.join(datapath, file) for file in all_files if file == "xenium_VUILD102LF_pair"]
+        self.split = split
+        self.gpu_num = gpu_num
+    def load_dataset(self, path):
+        dataset = load_from_disk(path)
+        return dataset
+    def __len__(self):
+        return int(self.datasize/self.gpu_num)
+
+    def __iter__(self):
+        
+        rank = torch.distributed.get_rank()  # Get current process rank
+        # random.seed(rank)
+        # dynamic_seed = rank + int(time.time()/1000) 
+        # random.seed(dynamic_seed)
+        # world_size = torch.distributed.get_world_size()  # Total number of processes (GPUs)
+
+        for datasets_path in self.datasets_paths:
+            # import pdb; pdb.set_trace()
+            print("current datasets:", datasets_path)
+            if "THD0008" not in datasets_path:
+                try:
+                    dataset = self.load_dataset(datasets_path)
+                except FileNotFoundError:
+                    print(f"{datasets_path} is not a valid dataset")
+                    continue
+                
+                split_dataset = dataset.train_test_split(test_size=0.001, seed=42)
+                data_subset = split_dataset['train'] if self.split == 'train' else split_dataset['test']
+                # Implement sharding
+                num_samples = len(data_subset)
+                samples_per_worker = num_samples // self.gpu_num
+                # Indices for the current worker
+                start_idx = rank * samples_per_worker
+                end_idx = start_idx + samples_per_worker if rank != self.gpu_num - 1 else num_samples
+                # Slice the dataset for the current worker
+                print(f"rank:{rank} is selecting: from {start_idx} to {end_idx}. total: {num_samples}, samples per worker: {samples_per_worker}")
+                sliced_dataset = data_subset.select(range(start_idx, end_idx))
+                if self.split == "val":
+                    iter_dataset = sliced_dataset.to_iterable_dataset()
+                elif self.split == "train":
+                    iter_dataset = sliced_dataset.to_iterable_dataset()
+                
+                # Yield samples from the current dataset
+                for sample in iter_dataset:
+                    # import pdb; pdb.set_trace()
+                    yield sample
  
+
+       
+class DynamicHuggingFaceDatasetFast(IterableDataset):
+    def __init__(self, sample_dataset, pair_index, labels, split):
+        '''
+        huggingface dataset, this is used for fine-tuning
+        '''
+        self.sample_dataset  = sample_dataset
+        self.pair_index = pair_index
+        self.labels = labels
+        self.split = split
+        self.gpus = torch.cuda.device_count()
+        self.num_nodes = int(os.environ.get('SLURM_JOB_NUM_NODES', 1))
+        self.gpu_num = self.gpus*self.num_nodes
+    def load_dataset(self, path):
+        dataset = load_from_disk(path)
+        return dataset
+    # def __len__(self):
+    #     return int(len(self.labels)/self.gpus)
+    def get_iter(self, rand_seed):
+        # import pdb; pdb.set_trace()
+        np.random.seed(rand_seed)
+        shuffled_indices = np.random.permutation(self.pair_index.shape[0])
+        left_idxs = self.pair_index[:,0][shuffled_indices]
+        right_idxs = self.pair_index[:,1][shuffled_indices]
+        left_dataset = self.sample_dataset.select(left_idxs)
+        right_dataset = self.sample_dataset.select(right_idxs)
+        # left_iter_dataset = left_dataset.to_iterable_dataset(num_shards=64)
+        # right_iter_dataset = right_dataset.to_iterable_dataset(num_shards=64)
+
+        self.pair_index = self.pair_index[shuffled_indices]
+        self.labels = self.labels[shuffled_indices]
+        return left_dataset, right_dataset
+    def __len__(self):
+        return int(self.pair_index.shape[0]/self.gpu_num)
+    def __iter__(self):
+        
+        rank = torch.distributed.get_rank()  # Get current process rank
+        # random.seed(rank)
+        # random_value = random.randint(1, 1000)
+        dynamic_seed = rank + int(time.time()) 
+        random.seed(dynamic_seed)
+        np.random.seed(dynamic_seed)
+        # left_dataset, right_dataset = self.get_iter(dynamic_seed)
+        # import pdb; pdb.set_trace()
+        if self.split != "test":
+            while True:
+                # import pdb; pdb.set_trace()
+                total_samples = len(self.labels)
+                n_samples = min(5000, total_samples)
+                selected_indices = np.random.choice(total_samples, size=n_samples, replace=False)
+                left_idxs = self.pair_index[:,0][selected_indices]
+                right_idxs = self.pair_index[:,1][selected_indices]
+
+                left_dataset = self.sample_dataset.select(left_idxs)
+                right_dataset =  self.sample_dataset.select(right_idxs)
+                selected_pairs = self.pair_index[selected_indices]
+                selected_labels = self.labels[selected_indices]
+                left_iter_dataset = left_dataset.to_iterable_dataset(num_shards=64)
+                right_iter_dataset = right_dataset.to_iterable_dataset(num_shards=64)
+                for left_sample,right_sample,(left_idx, right_idx), label in zip(left_iter_dataset, right_iter_dataset, selected_pairs, selected_labels):
+
+                    yield left_sample, right_sample, label, left_idx, right_idx
+        else:
+            # import pdb; pdb.set_trace()
+            # Implement sharding
+            num_samples = self.pair_index.shape[0]
+            samples_per_worker = num_samples // self.gpu_num
+            # Indices for the current worker
+            start_idx = rank * samples_per_worker
+            end_idx = start_idx + samples_per_worker if rank != self.gpu_num - 1 else num_samples
+            # Slice the dataset for the current worker
+            print(f"rank:{rank} is selecting: from {start_idx} to {end_idx}. total: {num_samples}, samples per worker: {samples_per_worker}")
+            # import pdb; pdb.set_trace()
+            left_idxs = self.pair_index[:,0][start_idx:end_idx]
+            right_idxs = self.pair_index[:,1][start_idx:end_idx]
+
+            left_dataset = self.sample_dataset.select(left_idxs)
+            right_dataset =  self.sample_dataset.select(right_idxs)
+            left_iter_dataset = left_dataset.to_iterable_dataset()
+            right_iter_dataset = right_dataset.to_iterable_dataset()
+
+            #subset the index and labels
+            subset_index = self.pair_index[start_idx:end_idx]
+            subset_labels = self.labels[start_idx:end_idx]
+            for left_sample,right_sample,(left_idx, right_idx), label in zip(left_iter_dataset, right_iter_dataset, subset_index, subset_labels):
+
+                yield left_sample, right_sample, label, left_idx, right_idx
+
+
+        
 class DynamicHuggingFaceDatasetEval(IterableDataset):
-    def __init__(self, datapath):
+    def __init__(self, datapath, kfold = False, cur_fold = False, split = False):
         '''
         huggingface dataset
         '''
         self.datapath  = datapath
+        self.kfold = kfold
+        self.cur_fold = cur_fold
+        self.split = split
     def load_dataset(self, path):
         dataset = load_from_disk(path)
         return dataset
 
+    def kfold_split(self, dataset):
+        sample_num = len(dataset)  # Use len() for datasets
+
+        kf = KFold(n_splits=self.kfold, shuffle=True, random_state=42)
+        for fold_index, (train_index, test_index) in enumerate(kf.split(range(sample_num))):
+            if self.cur_fold == fold_index:
+                train_dataset = dataset.select(train_index)
+                test_dataset = dataset.select(test_index)
+                print(f"Fold {self.cur_fold}, Train size: {len(train_dataset)}, Test size: {len(test_dataset)}")
+                return train_dataset, test_dataset
+
+        raise ValueError("Current fold index is out of bounds.")
     def __iter__(self):
 
         try:
             dataset = self.load_dataset(self.datapath)
+
+            if self.kfold:
+                train_dataset, test_dataset = self.kfold_split(dataset)
+                if self.split == "train":
+                    yield from train_dataset
+                elif self.split == "test":
+                    yield from test_dataset
+            else:
+                iter_dataset = dataset.to_iterable_dataset()
+                yield from iter_dataset 
+
         except FileNotFoundError:
             print(f"{self.datapath} is not a valid dataset")
 
-        iter_dataset = dataset.to_iterable_dataset(num_shards=64).shuffle(buffer_size=10_000)
+        
 
-        yield from iter_dataset 
+        
 
 
 class GetPairs(Dataset):
-    def __init__(self, adjacency_matrix:coo_matrix):
+    def __init__(self, adjacency_matrix:coo_matrix, num_workers:int):
         self.adj_matrix = adjacency_matrix
+        self.adj_matrix_csr = self.adj_matrix.tocsr()
+        self.num_workers = num_workers
         self.num_nodes = adjacency_matrix.shape[0]
         # Create positive pairs (edges from adjacency matrix)
         self.positive_pairs = np.column_stack((adjacency_matrix.row, adjacency_matrix.col))
@@ -341,15 +545,18 @@ class GetPairs(Dataset):
         num_positive = len(self.positive_pairs)
 
         # Create negative pairs (we will sample after ensuring all nodes are covered)
-        self.negative_pairs = self.create_negative_pairs(num_positive)
+        # self.negative_pairs = self.create_negative_pairs(num_positive)
+        self.negative_pairs = self.create_even_negative_pairs(batch_size=1000, num_workers=num_workers) #create even pos and neg pairs by nodes
         #make sure all nodes included
         # import pdb; pdb.set_trace()
         positive_covered_nodes = {node for pair in self.positive_pairs for node in pair}
         negative_covered_nodes = {node for pair in self.negative_pairs for node in pair}
         # import pdb; pdb.set_trace()
         all_node = positive_covered_nodes.union(negative_covered_nodes)
+        nodes_left_num = self.num_nodes - len(all_node)
         # import pdb; pdb.set_trace()
-        assert self.num_nodes == len(all_node), "ERROR: There are some nodes won't be sampled"
+        if self.num_nodes != len(all_node):
+            print(f"ERROR: There are {nodes_left_num} nodes not included")
         print(f"The total number of pairs: \npositive pair:{len(self.positive_pairs)}\nnegative pair:{len(self.negative_pairs)}")
 
         self.all_pairs = np.concatenate([self.positive_pairs, self.negative_pairs])
@@ -421,9 +628,192 @@ class GetPairs(Dataset):
         assert num_positive == len(negative_pairs), "The positive and negative pairs should be balanced, please check your codes!!!"
         assert not bool(set(negative_pairs) & positive_set), "The positive pair should not have overlap pairs with negative pairs"
         return np.array(negative_pairs)
+    def get_negative_candidates_for_node(self, node1):
+        # Get all nodes that are not connected and not itself
+        # import pdb;pdb.set_trace()
+        # print(node1)
+        candidates = np.where(self.adj_matrix_csr[[node1]].toarray()[0] == 0)[0]
+        # print(candidates)
+        candidates = candidates[candidates != node1]
+        return candidates
+        
+    def generate_negative_pairs_for_batch(self, batch):
+        negative_pairs = []
+        random.seed(42)
+        for node1, num in batch:
+
+            potential_negatives = self.get_negative_candidates_for_node(node1)
+
+            negative_pair = [(node1,neg) for neg in random.sample(list(potential_negatives), k=num)]
+            negative_pairs += negative_pair
+        return negative_pairs
+
+    def create_even_negative_pairs(self, batch_size=1000, num_workers=4):
+        """Generate negative pairs (non-edges) and ensure they are balanced with positive pairs."""
+        negative_pairs = []
+        # import pdb; pdb.set_trace()
+        # first_pos_node1 = set([pair[0] for pair in self.positive_pairs])
+        unique_elements, counts = np.unique(self.positive_pairs[:,0], return_counts=True)
+        # Combine into a dictionary for easier readability
+        first_pos_node1_dict = dict(zip(unique_elements, counts))
+        # import pdb; pdb.set_trace()
+        with ProcessPoolExecutor(max_workers=num_workers) as executor:
+            # Processing in batches
+            for start in tqdm(range(0, len(first_pos_node1_dict), batch_size)):
+            # for start in tqdm(range(0, 2000, batch_size)):
+                end = min(start + batch_size, len(first_pos_node1_dict))
+                batch = list(first_pos_node1_dict.items())[start:end]
+                # Submit the batch processing to the executor
+                # print(batch)
+                future = executor.submit(self.generate_negative_pairs_for_batch, batch)
+                negative_pairs.extend(future.result())  # Collect the result
+                # print(future.result())
+        # Ensure the count of positive and negative pairs is the same
+        if len(negative_pairs) < len(self.positive_pairs):
+            print("Warning: Fewer negative pairs than positive pairs.")
+        # import pdb; pdb.set_trace()
+        return np.array(negative_pairs)
     
 
 
+def split_dataset(all_pairs, all_labels, n_splits, split_mode = "random", test_size=None,zero_shot_cell_size=None):
+    """
+    test_size: number of test samples we want to cover, default=None.
+    split_mode: random means randomly select the edges using the upper triangle matrix without diagonal values.
+                leave_cell_out randomly select the cells and their edges.
+    zero_shot_cell_size: if you want to test the zero_shot ability, you should define this cell number 
+    """
+    # For the sake of demonstration, we'll create a placeholder array for our pairs
+    np.random.seed(42)
+    # Initialize KFold
+    
+    pair_num = all_pairs.shape[0]
+
+    
+    
+    if n_splits:
+        if split_mode == "random":
+            kf = KFold(n_splits=n_splits, shuffle=False)
+            # Prepare to store the train/test pairs
+            train_test_splits = {}
+            train_test_labels = {}
+            #getting the positive pairs
+            pos_pairs = all_pairs[: int(pair_num/2)]
+            pos_labels = all_labels[: int(pair_num/2)]
+            #get the negative pairs
+            neg_pairs = all_pairs[int(pair_num/2):]
+            neg_labels = all_labels[int(pair_num/2):]
+            for fold, (train_index, test_index) in enumerate(kf.split(pos_pairs)):
+                #getting train and test pairs
+                train_shuffled_indices = np.random.permutation(2*len(train_index)) #for pos and neg shuffle
+                test_shuffled_indices = np.random.permutation(2*len(test_index))
+                # import pdb; pdb.set_trace()
+                pos_train_pairs = pos_pairs[train_index]
+                neg_train_pairs = neg_pairs[train_index]
+
+                pos_test_pairs = pos_pairs[test_index[:test_size]]
+                neg_test_pairs = neg_pairs[test_index[:test_size]]
+                #getting train and test labels
+                pos_train_labels = pos_labels[train_index]
+                neg_train_labels = neg_labels[train_index]
+
+                pos_test_labels = pos_labels[test_index[:test_size]]
+                neg_test_labels = neg_labels[test_index[:test_size]]
+
+                # import pdb; pdb.set_trace()
+                #combine all the pairs and labels
+                train_pairs = np.vstack([pos_train_pairs, neg_train_pairs])
+                train_pairs = train_pairs[train_shuffled_indices]
+                test_pairs = np.vstack([pos_test_pairs, neg_test_pairs])
+                test_pairs = test_pairs[test_shuffled_indices]
+
+
+                train_labels = np.hstack([pos_train_labels, neg_train_labels])
+                train_labels = train_labels[train_shuffled_indices]
+                test_labels = np.hstack([pos_test_labels, neg_test_labels])
+                test_labels = test_labels[test_shuffled_indices]
+
+                train_test_splits[fold] = (train_pairs, test_pairs)
+                train_test_labels[fold] = (train_labels, test_labels)
+
+                # You can also print the shapes or any other information:
+                print(f"Train size: {train_pairs.shape[0]}, Test size: {test_pairs.shape[0]}")
+            return train_test_splits, train_test_labels
+        elif split_mode == "leave_cell_out":
+            #getting all the query cells
+            # import pdb; pdb.set_trace()
+            cell_ids = np.unique(all_pairs[:,0])
+            kf = KFold(n_splits=10, shuffle=False) #to make sure the test cell should be 10%
+            train_test_splits = {}
+            train_test_labels = {}
+            for fold, (train_index, test_index) in enumerate(kf.split(cell_ids)):
+                # import pdb; pdb.set_trace()
+                if fold < n_splits:
+                    train_cell_ids = cell_ids[train_index]
+                    test_cell_ids = cell_ids[test_index]
+                    # import pdb; pdb.set_trace()
+                    #getting the test pairs 
+                    test_pairs = all_pairs[np.isin(all_pairs[:,0], test_cell_ids)]
+                    test_labels = all_labels[np.isin(all_pairs[:,0], test_cell_ids)]
+                    # import pdb; pdb.set_trace()
+                    #getting the train pairs and exclude the edges that link to the test nodes
+                    #only filter the test cell_id in the pos pairs
+
+                    #first filter out the query cells belong to the test cell ids
+                    train_pairs = all_pairs[~np.isin(all_pairs[:,0], test_cell_ids)] #getting the potential positive pairs
+                    train_labels = all_labels[~np.isin(all_pairs[:,0], test_cell_ids)]
+                    #filter out the key cells that belong to the test cell ids, only filter by the positive pairs - the 1/2 cells
+                    mid_point = len(train_pairs) // 2 #split to two half avoid data imbalance of pos and neg after filtering
+                    train_pos_pairs = train_pairs[:mid_point, :]
+                    train_neg_pairs = train_pairs[mid_point:, :]
+                    pos_mask = ~np.isin(train_pos_pairs[:,1], test_cell_ids) #the pos key should not in test
+                    neg_mask = ~np.isin(train_neg_pairs[:,1], test_cell_ids) #the neg key should not in test
+                    half_mask = pos_mask & neg_mask
+                    full_mask = np.hstack([half_mask, half_mask])
+                    # import pdb; pdb.set_trace()
+                    # kept_mask = ~np.isin(train_pairs[:,1], test_cell_ids)
+                    # import pdb; pdb.set_trace()
+                    train_pairs = train_pairs[full_mask]
+                    train_labels = train_labels[full_mask]
+                    assert not np.isin(train_pairs.flatten(), test_cell_ids).any(), "ERROR: The test cell ids should not in the training cell ids"
+                    #shuffle the pairs and labels
+                    train_shuffled_indices = np.random.permutation(len(train_pairs))
+                    test_shuffled_indices = np.random.permutation(len(test_pairs))
+                    # import pdb; pdb.set_trace()
+                    train_pairs = train_pairs[train_shuffled_indices]
+                    train_labels = train_labels[train_shuffled_indices]
+                    test_pairs = test_pairs[test_shuffled_indices]
+                    test_labels = test_labels[test_shuffled_indices]
+
+
+                    # import pdb; pdb.set_trace()
+                    train_test_splits[fold] = (train_pairs, test_pairs)
+                    train_test_labels[fold] = (train_labels, test_labels)
+                else:
+                    break
+                print(f"Train cell number: {train_cell_ids.shape[0]}, Test cell number: {test_cell_ids.shape[0]}")
+                print(f"Train size: {train_pairs.shape[0]}, Test size: {test_pairs.shape[0]}")
+            return train_test_splits, train_test_labels
+                
+    else:
+        # import pdb; pdb.set_trace()
+        
+        
+        if zero_shot_cell_size != -1:
+            #getting the test dataset based on the cell_ids
+            cell_ids = np.unique(all_pairs[:,0])
+            selected_cell_ids = np.random.choice(cell_ids, size = zero_shot_cell_size, replace=False)
+
+            selected_pairs = all_pairs[np.isin(all_pairs[:,0], selected_cell_ids)] #select positive and negative pairs according to cells
+            selected_labels = all_labels[np.isin(all_pairs[:,0], selected_cell_ids)]
+
+            #shuffling the data
+            train_shuffled_indices = np.random.permutation(len(selected_pairs))
+            selected_pairs = selected_pairs[train_shuffled_indices]
+            selected_labels = selected_labels[train_shuffled_indices]
+            return selected_pairs, selected_labels
+        else:
+            return all_pairs, all_labels
 
 
 
@@ -617,6 +1007,39 @@ def unique_list_mapping_to_one_hot(unique_list: List, target_list: List)-> np.ar
         one_hot_vector[target_index] = 1
         one_hot_encodings.append(one_hot_vector)
     return np.array(one_hot_encodings)
+
+
+class Lora:
+    def __init__(self, lora_config = None):
+        self.lora_config = lora_config
+
+    def wrapper(self, model = None):
+        # import pdb; pdb.set_trace()
+        lora_config = LoraConfig(
+                r=self.lora_config["r"], # Rank
+                lora_alpha=self.lora_config["lora_alpha"],
+                target_modules=self.lora_config["target_modules"],
+                lora_dropout=0.05,
+                bias="none"
+            )
+        
+        
+        peft_model = get_peft_model(model, lora_config)
+        # import pdb; pdb.set_trace()
+        return peft_model
+    @staticmethod
+    def print_number_of_trainable_model_parameters(model):
+        trainable_model_params = 0
+        all_model_params = 0
+        import pdb; pdb.set_trace()
+        for _, param in model.named_parameters():
+            all_model_params += param.numel()
+            if param.requires_grad:
+                trainable_model_params += param.numel()
+        import pdb; pdb.set_trace()
+        print(f"trainable model parameters: {trainable_model_params}\nall model parameters: {all_model_params}\npercentage of trainable model parameters: {100 * trainable_model_params / all_model_params:.2f}%")
+
+
 
 
 def find_subcellular_domains(cell_data: pd.DataFrame,
@@ -939,6 +1362,7 @@ def complete_masking(batch, p, n_tokens, cls_token, mask_token, sep_token, pad_t
     mask = torch.where(indices == pad_token, torch.tensor(pad_token), mask) # the mask sequence with the padding tokens
     # so we make the mask of all PAD tokens to be 1 so that it's not taken into account in the loss computation
     # import pdb; pdb.set_trace()
+
     # Notice for the following 2 lines that masked_indices has already not a single padding token masked
     masked_indices = torch.where(indices != cls_token, masked_indices, indices) # same with CLS, no CLS token can be masked
     mask = torch.where(indices == cls_token, torch.tensor(pad_token), mask) # we change the mask so that it doesn't mask any CLS token

@@ -1,12 +1,0 @@
-fusermount: failed to unmount /tmp/erda: Invalid argument
-total 28
-drwxr-xr-x.   2 sxr280 users      6 Sep 25 15:27 .
-drwxrwxrwt. 298 root   root  278528 Oct 10 00:10 ..
-The directory '/tmp/erda' contains 1 files.
-Running command: python find_gene_interaction.py --transcript_file /tmp/erda/Spatialformer/downloaded_data/raw/Xenium_V1_hColon_Cancer_Add_on_FFPE_outs/transcripts.csv.gz --number_cell 587115 --partition 28 --dataname Xenium_V1_hColon_Cancer_Add_on_FFPE_outs;
-2024-10-10 00:20:05,679 - INFO - The number of cells that are kept: 541166
-2024-10-10 00:20:05,682 - INFO - Mean transcripts per cell: 144.21309912300478
-2024-10-10 00:20:05,683 - INFO - Total transcripts left: 78043226
-2024-10-10 00:20:07,778 - INFO - Gene number after filtering: 425
-2024-10-10 00:20:10,327 - INFO - total partitions you need are: 28
-  0%|          | 0/6 [00:00<?, ?it/s] 17%|█▋        | 1/6 [04:22<21:54, 262.83s/it] 33%|███▎      | 2/6 [08:04<15:55, 238.80s/it]slurmstepd: error: *** JOB 2275 ON hendrixgpu03fl CANCELLED AT 2024-10-10T00:30:08 ***

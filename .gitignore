@@ -18,7 +18,10 @@
 /downstream/subcellular_localization_prediction/data/graph_list.pkl
 /downstream/subcellular_localization_prediction/templates/
 /downstream/subcellular_localization_prediction/transcripts_genesamepatterns.csv
+/downstream/cell_cell_communication/benchmark/CellContrast/
+
 /Figures/*
+
 
 /output/*
 
@@ -35,4 +38,20 @@
 
 
 /spatialformer/checkpoint
+
+#all the figures
+*.png
+*.jpg
+
+#all core file
+*core
+
+#all h5ad file
+*.h5ad
+
+#all checkpoints
+*.ckpt
+
+#all pickled files
+*.pkl
 

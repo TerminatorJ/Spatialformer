@@ -1,11 +1,0 @@
-total 260
-drwxr-xr-x.    2 sxr280 users      6 Sep 25 22:01 .
-drwxrwxrwt. 4462 root   root  401408 Oct 10 00:13 ..
-The directory '/tmp/erda' contains 1 files.
-Running command: python find_gene_interaction.py --transcript_file /tmp/erda/Spatialformer/downloaded_data/raw/Xenium_V1_Human_Brain_GBM_FFPE_outs/transcripts.csv.gz --number_cell 816769 --partition 20 --dataname Xenium_V1_Human_Brain_GBM_FFPE_outs;
-2024-10-10 00:23:08,637 - INFO - The number of cells that are kept: 806148
-2024-10-10 00:23:08,640 - INFO - Mean transcripts per cell: 195.19526811453977
-2024-10-10 00:23:08,642 - INFO - Total transcripts left: 157356275
-2024-10-10 00:23:14,643 - INFO - Gene number after filtering: 480
-2024-10-10 00:23:22,003 - INFO - total partitions you need are: 41
-  0%|          | 0/100 [00:00<?, ?it/s]slurmstepd: error: *** JOB 2277 ON hendrixgpu07fl CANCELLED AT 2024-10-10T00:30:13 ***

@@ -23,6 +23,7 @@ get_file_path = lambda path, filename: os.path.join(os.path.dirname(os.path.dirn
 def embed_data(adata,
                tissue, 
                condition,
+               method,
                model_ckp_path, 
                batch_size,
                config_path = get_file_path("config", "_config_train_large_pair.json"),
@@ -60,12 +61,18 @@ def embed_data(adata,
                 
                 #getting the last layer
                 last_hidden_repr, co_adj_prob = model.get_embeddings(batch, [-1], False, True)#return the probabilities of the gene gene cooccurrence
-                cls_embeddings = last_hidden_repr[0][:,0]
+                if method == "cls":
+                    embeddings = last_hidden_repr[0][:,0] #getting the embeddings of cls tokens
+                elif method == "gene":
+                    #optional, we can use the gene embeddings
+                    embeddings = torch.mean(last_hidden_repr[0][:,5:], dim=1) 
+                else:
+                    raise ValueError(f"Unsupported method: '{method}'. Please use 'cls' or 'gene'.")
                 #reveal the gene pair names:
                 batch_pairs = reveal_name(GeneTokenizer = tokenizer, co_adj_prob = co_adj_prob, threshold = threshold, batch = batch)
                 # import pdb; pdb.set_trace()
                 # logger.info(f"{len(all_pairs)} pairs selected")
-                all_embeddings.append(cls_embeddings)
+                all_embeddings.append(embeddings)
                 all_pairs += batch_pairs
         # import pdb; pdb.set_trace()
         combined_embeddings = torch.concat(all_embeddings).detach().cpu().numpy()
@@ -94,7 +101,7 @@ def embed_data(adata,
                 confirm_prob = torch.stack(result_tensors).detach().cpu().numpy()
                 all_prob.append(confirm_prob)
             combined_embeddings = torch.concat(all_embeddings).detach().cpu().numpy()
-        import pdb; pdb.set_trace()
+        # import pdb; pdb.set_trace()
         # adata.obsm["X_SpaF"] = combined_embeddings
 
         return combined_embeddings, all_prob
@@ -285,14 +292,20 @@ class GeneExpressionPairDataset(Dataset):
         self.left_indices = [all_cell_names.index(left_cell) for left_cell in left_cells]
         self.right_indices = [all_cell_names.index(right_cell) for right_cell in right_cells]
         # self.right_indices = adata.obs[adata.obs.index.isin(right_cell)].index.tolist()
-        self.left_expression_data = np.array(adata.X[self.left_indices, :].todense())
-        self.right_expression_data = np.array(adata.X[self.right_indices, :].todense())
-        self.genes = adata.var["gene_name"].to_numpy() 
+        try:
+            self.left_expression_data = np.array(adata.X[self.left_indices, :].todense())
+            self.right_expression_data = np.array(adata.X[self.right_indices, :].todense())
+            self.genes = adata.var["gene_name"].to_numpy() 
+        except AttributeError:
+            self.left_expression_data = np.array(adata.X[self.left_indices, :])
+            self.right_expression_data = np.array(adata.X[self.right_indices, :])
+            self.genes = adata.var["gene_name"].to_numpy() 
 
     def __len__(self):
         return self.left_expression_data.shape[0]  # Number of cells (rows)
 
     def __getitem__(self, idx):
+        # import pdb; pdb.set_trace()
         left_expression_vector = self.left_expression_data[idx]
         right_expression_vector = self.right_expression_data[idx]
         self.tokenizer.genes = self.genes  # Assign genes to tokenizer for access
@@ -368,6 +381,7 @@ def collate_fn(batch):
             else:
                 import pdb; pdb.set_trace()
                 # pad_size = (500 - auxi_lenght) - tokens_len
+
                 exclude_cls = prefix_tokens[1:]
                 padded_indice = prefix_tokens + token1 + end_tokens + exclude_cls + end_tokens
                 pad_size = 500 - padded_indice

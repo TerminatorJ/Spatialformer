@@ -21,19 +21,6 @@ from get_embeddings import sample_dataset
 from train import *
 
 current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
-# Define the MLP model
-# class SimpleMLP(nn.Module):
-#     def __init__(self, input_size, hidden_size, output_size):
-#         super(SimpleMLP, self).__init__()
-#         self.layer1 = nn.Linear(input_size, hidden_size)
-#         self.relu = nn.ReLU()
-#         self.layer2 = nn.Linear(hidden_size, output_size)
-    
-#     def forward(self, x):
-#         x = self.layer1(x)
-#         x = self.relu(x)
-#         x = self.layer2(x)
-#         return x
     
 class SimpleMLP(nn.Module):
     def __init__(self, input_size, hidden_size, output_size, dropout_prob=0.5):
@@ -80,9 +67,9 @@ def initialize(train_X_path, train_label_path, test_X_path, test_label_path, val
     test_data = standardization(test_data)
 
     # Load labels
-    train_labels = np.load(train_label_path)
-    valid_labels = np.load(val_label_path)
-    test_labels = np.load(test_label_path)
+    train_labels = np.load(train_label_path, allow_pickle=True)
+    valid_labels = np.load(val_label_path, allow_pickle=True)
+    test_labels = np.load(test_label_path, allow_pickle=True)
     # import pdb; pdb.set_trace()
     # Encode labels
     label_encoder = LabelEncoder()
@@ -190,7 +177,7 @@ def train_with_early_stopping(model, train_loader, valid_loader, epoch=10, patie
     plt.ylabel('Loss')
     plt.title('Training and Validation Curve with Early Stopping')
     plt.legend()
-    plt.savefig(f"/home/sxr280/Spatialformer/downstream/cell_types_nich_annotation/figures/training_valid_curve_{n_tasks}_{objective}_{current_time}.png", dpi=300)
+    plt.savefig(f"/scratch/project_465001027/Spatialformer/downstream/cell_types_nich_annotation/figures/training_valid_curve_{n_tasks}_{objective}_{current_time}.png", dpi=300)
     plt.show()
 
     return model
@@ -199,13 +186,18 @@ def evaluate_metrics(model, loader, n_tasks, objective = None):
     model.eval()
     all_preds = []
     all_labels = []
+    all_outputs = []
     with torch.no_grad():
         for X_batch, y_batch in loader:
             outputs = model(X_batch)
             _, predicted = torch.max(outputs.data, 1)
+            #concating all the predicted results
+            import pdb; pdb.set_trace()
+            all_outputs.extend(torch.cat(outputs).cpu().numpy())
             all_preds.extend(predicted.cpu().numpy())
             all_labels.extend(y_batch.cpu().numpy())
-    np.save(f"/home/sxr280/Spatialformer/downstream/cell_types_nich_annotation/data/all_preds_{n_tasks}_{objective}_{current_time}.npy", np.array(all_preds))
+    np.save(f"/scratch/project_465001027/Spatialformer/downstream/cell_types_nich_annotation/data/all_outputs_{n_tasks}_{objective}_{current_time}.npy", np.array(all_outputs))
+    np.save(f"/scratch/project_465001027/Spatialformer/downstream/cell_types_nich_annotation/data/all_preds_{n_tasks}_{objective}_{current_time}.npy", np.array(all_preds))
     precision = precision_score(all_labels, all_preds, average='weighted')
     recall = recall_score(all_labels, all_preds, average='weighted')
     f1 = f1_score(all_labels, all_preds, average='weighted')
@@ -234,6 +226,15 @@ if __name__ == "__main__":
         test_label_path = '/home/sxr280/Spatialformer/data/test_nichelabels_True_False_8_0.1_2_None_20241005_145010.npy'
         val_X_path = '/home/sxr280/Spatialformer/data/val_embedding_True_False_8_0.1_2_None_20241005_145010.npy'
         val_label_path = '/home/sxr280/Spatialformer/data/val_nichelabels_True_False_8_0.1_2_None_20241005_145010.npy'
+    
+    if args.n_tasks == 3:
+        train_X_path = "/scratch/project_465001027/Spatialformer/downstream/cell_types_nich_annotation/data/spa_single_concat_train_embed1.npy"
+        train_label_path = "/scratch/project_465001027/Spatialformer/downstream/cell_types_nich_annotation/data/spa_train_anns.npy"
+        test_X_path = "/scratch/project_465001027/Spatialformer/downstream/cell_types_nich_annotation/data/spa_single_concat_test_embed1.npy"
+        test_label_path = "/scratch/project_465001027/Spatialformer/downstream/cell_types_nich_annotation/data/spa_test_anns.npy"
+        val_X_path = "/scratch/project_465001027/Spatialformer/downstream/cell_types_nich_annotation/data/spa_single_concat_val_embed1.npy"
+        val_label_path = "/scratch/project_465001027/Spatialformer/downstream/cell_types_nich_annotation/data/spa_val_anns.npy"
+
     if args.n_tasks == 1:
         if args.objective == "spatial":
             train_X_path = '/home/sxr280/Spatialformer/data/train_embedding_True_False_8_0.1_1_spatial.npy'
@@ -242,41 +243,20 @@ if __name__ == "__main__":
             test_label_path = '/home/sxr280/Spatialformer/data/test_labels_True_False_8_0.1_1_spatial.npy'
             val_X_path = '/home/sxr280/Spatialformer/data/val_embedding_True_False_8_0.1_1_spatial.npy'
             val_label_path = '/home/sxr280/Spatialformer/data/val_labels_True_False_8_0.1_1_spatial.npy'
-        elif args.objective == "exp":
-            train_X_path = '/home/sxr280/Spatialformer/data/train_embedding_True_False_8_0.1_1_exp.npy'
-            train_label_path = '/home/sxr280/Spatialformer/data/train_labels_True_False_8_0.1_1_exp.npy'
-            test_X_path = '/home/sxr280/Spatialformer/data/test_embedding_True_False_8_0.1_1_exp.npy'
-            test_label_path = '/home/sxr280/Spatialformer/data/test_labels_True_False_8_0.1_1_exp.npy'
-            val_X_path = '/home/sxr280/Spatialformer/data/val_embedding_True_False_8_0.1_1_exp.npy'
-            val_label_path = '/home/sxr280/Spatialformer/data/val_labels_True_False_8_0.1_1_exp.npy'
-        elif args.objective == "mt":
-            train_X_path = '/home/sxr280/Spatialformer/data/train_embedding_True_False_8_0.1_1_mt_20240907_163220.npy'
-            train_label_path = '/home/sxr280/Spatialformer/data/train_labels_True_False_8_0.1_1_mt_20240907_163220.npy'
-            test_X_path = '/home/sxr280/Spatialformer/data/test_embedding_True_False_8_0.1_1_mt_20240907_163220.npy'
-            test_label_path = '/home/sxr280/Spatialformer/data/test_labels_True_False_8_0.1_1_mt_20240907_163220.npy'
-            val_X_path = '/home/sxr280/Spatialformer/data/val_embedding_True_False_8_0.1_1_mt_20240907_163220.npy'
-            val_label_path = '/home/sxr280/Spatialformer/data/val_labels_True_False_8_0.1_1_mt_20240907_163220.npy'
-        elif args.objective == "baseline":
-            train_X_path = '/home/sxr280/Spatialformer/data/train_embedding_True_False_8_0.1_1_baseline.npy'
-            train_label_path = '/home/sxr280/Spatialformer/data/train_labels_True_False_8_0.1_1_baseline.npy'
-            test_X_path = '/home/sxr280/Spatialformer/data/test_embedding_True_False_8_0.1_1_baseline.npy'
-            test_label_path = '/home/sxr280/Spatialformer/data/test_labels_True_False_8_0.1_1_baseline.npy'
-            val_X_path = '/home/sxr280/Spatialformer/data/val_embedding_True_False_8_0.1_1_baseline.npy'
-            val_label_path = '/home/sxr280/Spatialformer/data/val_labels_True_False_8_0.1_1_baseline.npy'
         elif args.objective == "scFoundataion":
-            train_X_path = '/home/sxr280/scFoundation/model/examples/enhancement/David1M_0.1fra_train_01B-resolution_singlecell_cell_embedding_f1_resolution.npy'
-            train_label_path = '/home/sxr280/Spatialformer/data/train_frac10_nicheann.npy'
-            test_X_path = '/home/sxr280/scFoundation/model/examples/enhancement/David1M_0.1fra_test_01B-resolution_singlecell_cell_embedding_f1_resolution.npy'
-            test_label_path = '/home/sxr280/Spatialformer/data/test_frac10_nicheann.npy'
-            val_X_path = '/home/sxr280/scFoundation/model/examples/enhancement/David1M_0.1fra_val_01B-resolution_singlecell_cell_embedding_f1_resolution.npy'
-            val_label_path = '/home/sxr280/Spatialformer/data/val_frac10_nicheann.npy'
+            train_X_path = '/scratch/project_465001027/Spatialformer/downstream/cell_types_nich_annotation/data/VUILD110_0.1fra_train_cellniche_01B-resolution_singlecell_cell_embedding_f1_resolution.npy'
+            train_label_path = '/scratch/project_465001027/Spatialformer/downstream/cell_types_nich_annotation/data/VUILD110_nc_train.npy'
+            test_X_path = '/scratch/project_465001027/Spatialformer/downstream/cell_types_nich_annotation/data/VUILD110_0.1fra_test_cellniche_01B-resolution_singlecell_cell_embedding_f1_resolution.npy'
+            test_label_path = '/scratch/project_465001027/Spatialformer/downstream/cell_types_nich_annotation/data/VUILD110_nc_test.npy'
+            val_X_path = '/scratch/project_465001027/Spatialformer/downstream/cell_types_nich_annotation/data/VUILD110_0.1fra_val_cellniche_01B-resolution_singlecell_cell_embedding_f1_resolution.npy'
+            val_label_path = '/scratch/project_465001027/Spatialformer/downstream/cell_types_nich_annotation/data/VUILD110_nc_val.npy'
         elif args.objective == "scGPT":
-            train_X_path = '/home/sxr280/Spatialformer/data/train_embeddings_scGPT_niche.npy'
-            train_label_path = '/home/sxr280/Spatialformer/data/train_frac10_nicheann.npy'
-            test_X_path = '/home/sxr280/Spatialformer/data/test_embeddings_scGPT_niche.npy'
-            test_label_path = '/home/sxr280/Spatialformer/data/test_frac10_nicheann.npy'
-            val_X_path = '/home/sxr280/Spatialformer/data/val_embeddings_scGPT_niche.npy'
-            val_label_path = '/home/sxr280/Spatialformer/data/val_frac10_nicheann.npy'
+            train_X_path = '/scratch/project_465001027/Spatialformer/downstream/cell_types_nich_annotation/data/train_embeddings_scGPT_niche.npy'
+            train_label_path = '/scratch/project_465001027/Spatialformer/downstream/cell_types_nich_annotation/data/VUILD110_nc_train.npy'
+            test_X_path = '/scratch/project_465001027/Spatialformer/downstream/cell_types_nich_annotation/data/test_embeddings_scGPT_niche.npy'
+            test_label_path = '/scratch/project_465001027/Spatialformer/downstream/cell_types_nich_annotation/data/VUILD110_nc_test.npy'
+            val_X_path = '/scratch/project_465001027/Spatialformer/downstream/cell_types_nich_annotation/data/val_embeddings_scGPT_niche.npy'
+            val_label_path = '/scratch/project_465001027/Spatialformer/downstream/cell_types_nich_annotation/data/VUILD110_nc_val.npy'
 
 
 
@@ -285,7 +265,7 @@ if __name__ == "__main__":
 
     model = train_with_early_stopping(model, train_loader, valid_loader, epoch = args.epoch, patience = args.patience, n_tasks = args.n_tasks, objective = args.objective, lr = args.lr, monitor = "val_loss")
     # Save the model
-    torch.save(model, f'/home/sxr280/Spatialformer/downstream/model/model_{args.n_tasks}_{args.objective}.pth')
+    torch.save(model, f'/scratch/project_465001027/Spatialformer/downstream/cell_types_nich_annotation/checkpoints/model_{args.n_tasks}_{args.objective}.pth')
 
     # Evaluate the model
     # train_precision, train_recall, train_f1 = evaluate_metrics(model, train_loader)
@@ -297,6 +277,9 @@ if __name__ == "__main__":
 
 
 # python cell_type_annotation.py --n_tasks 2 --lr 0.001 --epoch 10000 --patience 5 --batch_size 64
+
+#three tasks
+# python cell_type_annotation.py --n_tasks 3 --lr 0.001 --epoch 10000 --patience 10 --batch_size 64 --input_size 512
 
 
 #python cell_type_annotation.py --n_tasks 1 --lr 0.0001 --epoch 1000 --objective spatial --patience 40

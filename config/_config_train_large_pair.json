@@ -1,5 +1,5 @@
 {
-    "pretrained_path": "/scratch/project_465001027/Spatialformer/output/checkpoints/step=0025000-train_total_loss=-1.3222-val_total_loss=0.0000.ckpt",
+    "pretrained_path": "/scratch/project_465001027/Spatialformer/output/checkpoints/step=0024000-train_total_loss=-1.6503-val_total_loss=0.0000.ckpt",
     "retake_training": true,
     "input_mode": "pair",
     "mask_way": "MT",
@@ -31,7 +31,7 @@
     "lr": 1e-4,
     "strategy": "ddp",
     "warmup": 10000,
-    "total_step": 50000,
+    "total_step": 100000,
     "max_epochs": 30661140,
     "autoregressive": false,
     "pool": null,

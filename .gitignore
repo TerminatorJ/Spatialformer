@@ -40,7 +40,7 @@
 /spatialformer/checkpoint
 
 #all the figures
-*.png
+/downstream/**/*png
 *.jpg
 
 #all core file

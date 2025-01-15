@@ -4,7 +4,7 @@ This is the official codebase for the SpatialFormer, the first single cell spati
 
 [![License](https://img.shields.io/badge/license-MIT-blue)](https://github.com/username/repo/blob/main/LICENSE)
 
-![SpatialFormer](/scratch/project_465001027/Spatialformer/rm_figs/github_main_figure.png)
+![SpatialFormer](/rm_figs/github_main_figure.png)
 
 
 ## Installation

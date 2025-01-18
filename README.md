@@ -77,6 +77,11 @@ embed_adata = sp.tl.embed_data(adata,
 | right_cell | array_like | A list of cell IDs representing the key cells. |
 | num_workers | integer | The number of CPU cores to load the data. This value should match the number of workers specified in the data loader.|
 
+### Star Trend
+
+[![Star History Chart](https://api.star-history.com/svg?repos=TerminatorJ/Spatialformer&type=Date)](https://star-history.com/#TerminatorJ/Spatialformer&Date)
+
+
 
 ## Cite our work
 

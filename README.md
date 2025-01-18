@@ -29,13 +29,14 @@ The processed individual cell dataset can be retrieved from the Hugging Face dat
 
 
 
-## Get the embeddings
+## Get the Embeddings
 
-Spatialformer provides a simple function to get the embeddings out. By using sp.tl.embed function, we can seamlessly combine with the anndata object, which means the generated embeddings will be stored in the obsm as keys "X_SpaF". 
+SpatialFormer provides a simple function to extract embeddings. By using the `sp.tl.embed()` function, we can seamlessly integrate with the AnnData object, meaning the generated embeddings will be stored in `obsm` under the key `"X_SpaF"`.
 
-SpatialFormer supports two ways of generating the embeddings. 1) single input mode; 2) pair-wise input mode. The exmaple code of generating the anndata as below:
+SpatialFormer supports two methods for generating embeddings: 1) single input mode and 2) pairwise input mode. Below is an example of generating the AnnData embeddings:
 
-#### single input mode
+
+#### Single Input Mode
 ```python
 embed_adata = sp.tl.embed_data(adata, 
                               tissue,
@@ -48,7 +49,7 @@ embed_adata = sp.tl.embed_data(adata,
                             num_workers = 8
                             )
 ```
-#### double input mode
+#### Pairwise Input Mode
 ```python
 embed_adata = sp.tl.embed_data(adata, 
                               tissue,
@@ -65,16 +66,16 @@ embed_adata = sp.tl.embed_data(adata,
 
 | Arguments                  | dtype | Description |                                                                                          |
 | :------------------------   | :--------- | :--------- | 
-| adata | object  | an anndata that store the expression information by cellxgene.|
-|  tissue | string |The tissue type. e.g., Breast/Lung  |
-| condition | string | The meta data of the sample condition. e.g., Disease/Healthy |
-| method | string | the method of the embed function, it can be eight "single" or "pair". The single mode will only collate the single cell as the input to the model. As for "pair" mode, the data will be prepared as the pair-wise input. If the method uses "pair", the left_cell and right_cell should be provided, and the length of "left_cell" and "right_cell" should be the same. The cell_id in each list should be paired by index, which means the first cell_id in "left_cell" should pair with the first cell_id in the "right_cell" and so forth.  |
-| model_ckp_path | string | The checkpoint of the SpatialFormer model|
-| batch_size | integer | The batch size for the dataloader.|
-| threshold | float | The threshold of filtering whether two genes are paired. This can be used to filter out the high confident paired genes in the subcellular resolution. Specifically, this only work on the "single" input mode. It won't work as a function in the "pair" mode.|
-| left_cell | array_like | The list of cells_id that represents the query cells.|
-| right_cell | array_like | The list of cells_id that represents the key cells. |
-| num_workers | integer | Number of cpu to load the data. It should be set as the number of worker that same in the dataloader|
+| adata | object  | An AnnData object that stores expression information by CellXGene..|
+|  tissue | string | The type of tissue (e.g., Breast/Lung).|
+| condition | string | Metadata for the sample condition (e.g., Disease/Healthy). |
+| method | string | The method of the embed function, which can be either "single" or "pair." The single mode collates only individual cells as input for the model. In "pair" mode, data is prepared for pairwise input. If using "pair," both left_cell and right_cell must be provided, and their lengths must be the same. Each cell ID in left_cell corresponds to the cell ID at the same index in right_cell.  |
+| model_ckp_path | string | The path to the SpatialFormer model checkpoint.|
+| batch_size | integer | The batch size for the data loader.|
+| threshold | float | The threshold for filtering whether two genes are paired, which helps in identifying confidently paired genes at subcellular resolution. This option is applicable only in "single" input mode and is not functional in "pair" mode.|
+| left_cell | array_like | A list of cell IDs representing the query cells.|
+| right_cell | array_like | A list of cell IDs representing the key cells. |
+| num_workers | integer | The number of CPU cores to load the data. This value should match the number of workers specified in the data loader. |
 
 
 

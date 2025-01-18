@@ -64,9 +64,9 @@ embed_adata = sp.tl.embed_data(adata,
                             )
 ```
 
-| Arguments                  | dtype | Description |                                                                                          |
+| Arguments         | dtype |Description |
 | :------------------------   | :--------- | :--------- | 
-| adata | object  | An AnnData object that stores expression information by CellXGene..|
+| adata | object  | An AnnData object that stores expression information by CellXGene.|
 |  tissue | string | The type of tissue (e.g., Breast/Lung).|
 | condition | string | Metadata for the sample condition (e.g., Disease/Healthy). |
 | method | string | The method of the embed function, which can be either "single" or "pair." The single mode collates only individual cells as input for the model. In "pair" mode, data is prepared for pairwise input. If using "pair," both left_cell and right_cell must be provided, and their lengths must be the same. Each cell ID in left_cell corresponds to the cell ID at the same index in right_cell.  |
@@ -75,7 +75,7 @@ embed_adata = sp.tl.embed_data(adata,
 | threshold | float | The threshold for filtering whether two genes are paired, which helps in identifying confidently paired genes at subcellular resolution. This option is applicable only in "single" input mode and is not functional in "pair" mode.|
 | left_cell | array_like | A list of cell IDs representing the query cells.|
 | right_cell | array_like | A list of cell IDs representing the key cells. |
-| num_workers | integer | The number of CPU cores to load the data. This value should match the number of workers specified in the data loader. |
+| num_workers | integer | The number of CPU cores to load the data. This value should match the number of workers specified in the data loader.|
 
 
 

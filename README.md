@@ -78,4 +78,8 @@ embed_adata = sp.tl.embed_data(adata,
 | num_workers | integer | The number of CPU cores to load the data. This value should match the number of workers specified in the data loader.|
 
 
+## Cite our work
+
+TOBEDONE
+
 

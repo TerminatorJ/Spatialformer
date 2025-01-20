@@ -1,0 +1,8 @@
+Introduction
+============
+
+Welcome to the documentation for SpatialFormer, a Python package for single-cell spatial-omics data analysis using pretrained foundation models. This package is based on the work of SpatialFormer (`GitHub <https://github.com/TerminatorJ/Spatialformer/tree/master>`_, `preprint <>`_) and provides a set of functions for data preprocessing, visualization, and model evaluation.
+
+SpatialFormer stands as the first foundation model specifically tailored for spatial-omics, integrating both transformer and convolutional layers to process over 300 million pair-wise cells. The model addresses unique challenges associated with pre-training on large-scale single-cell spatial omic data, implementing innovative techniques that surmount both methodological and engineering obstacles. By leveraging the transformer architecture, our model simultaneously learns cell and gene representations, which facilitates a deep understanding of cellular spatial characteristics through gene expression data.
+
+This package offers an array of functions compatible with the scikit-learn library for data preprocessing, visualization, and model evaluation. These functions enable users to preprocess their single-cell spatial-omics RNA-seq data, visualize outcomes, and evaluate the efficacy of the SpatialFormer model on various downstream tasks, such as cell-type annotation, prediction of genetic perturbations, and cell-cell co-occurrence prediction.

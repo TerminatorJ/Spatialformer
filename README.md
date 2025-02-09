@@ -76,7 +76,6 @@ embed_adata = sp.tl.embed_data(adata,
 
 
 ## Cite our work
-
-TOBEDONE
+Wang J, Huang Y, Winther O. SpatialFormer: Universal Spatial Representation Learning from Subcellular Molecular to Multicellular Landscapes[J]. bioRxiv, 2025: 2025.01. 18.633701.
 
 

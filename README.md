@@ -6,10 +6,22 @@ This is the official codebase for the SpatialFormer, the first single cell spati
 
 ![SpatialFormer](./rm_figs/github_main_figure.png)
 
+## Overview
+Spatial transcriptomics quantifies gene expression within its spatial context, significantly advancing biomedical research. Understanding gene spatial expression and the organization of multicellular systems is vital for disease diagnosis and studying biological processes. However, existing models often struggle to integrate gene expression data with cellular spatial information effectively. In this study, we introduce SpatialFormer, a hybrid framework combining convolutional networks and transformers to learn single-cell multimodal and multi-scale information in the niche context, including expression data and subcellular gene spatial distribution. Pre-trained on 300 million cell pairs from 12 million spatially resolved single cells across 62 Xenium slides, SpatialFormer merges gene spatial expression profiles with cell niche information via the pair-wise training strategy. Our findings demonstrate that SpatialFormer distills biological signals across various tasks, including single-cell batch correction, cell-type annotation, co-localization detection, and identifying gene pairs that are critical for the immune cell-cell interactions involved in the regulation of lung fibrosis. These advancements enhance our understanding of cellular dynamics and offer new pathways for applications in biomedical research. 
+
+
+## System Requirements
+### Hardware requirements
+We provide the GPU and CPU version for users with different device levels. However, if a large scale of cells need to be calculated, the GPUs is mandatory to get the results effeciently.
+### Software requirements
+#### OS requirements
+This package is supported for macOS and Linux. The package has been tested on the following systems:
+- macOS: Sequoia (15.3.1)
+- Linux: Ubuntu 16.04
 
 ## Installation
 
-XXX
+
 
 
 

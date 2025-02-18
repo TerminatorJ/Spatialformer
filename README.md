@@ -14,13 +14,17 @@ Spatial transcriptomics quantifies gene expression within its spatial context, s
 ### Hardware requirements
 We provide the GPU and CPU version for users with different device levels. However, if a large scale of cells need to be calculated, the GPUs is mandatory to get the results effeciently. When using GPUs, AMD and IVIDIA GPUs are all supported.
 ### Software requirements
-#### OS requirements
+#### OS requirementshttps://github.com/TerminatorJ/Spatialformer/tree/master
 This package is supported for macOS and Linux. The package has been tested on the following systems:
 - macOS: Sequoia (15.3.1)
 - Linux: Ubuntu 16.04; SLES 15.5
 
 #### python requirements
-python >= 3.8
+python >= 3.9
+If you are using AMD gpus, please install the pytorch via
+```bash
+pip install torch==2.6.1 torchvision==0.20.1 torchaudio==2.5.1 --index-url https://download.pytorch.org/whl/rocm6.1
+```
 
 ## Installation
 

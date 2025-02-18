@@ -21,6 +21,17 @@ This package is supported for macOS and Linux. The package has been tested on th
 
 ## Installation
 
+### Install from PyPi
+```python
+pip install SpatialFormer
+```
+
+### Install from Github
+```python
+git clone https://github.com/TerminatorJ/Spatialformer/
+cd Spatialformer
+python setup.py install
+```
 
 
 

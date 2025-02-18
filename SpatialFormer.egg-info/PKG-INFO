@@ -1,0 +1,11 @@
+Metadata-Version: 2.1
+Name: SpatialFormer
+Version: 0.0.1
+Summary: A single-cell foundation model focus on the spatial cell-cell colocalization
+Home-page: https://github.com/TerminatorJ/Spatialformer/
+Author: TerminatorJ
+Author-email: wangjun19950708@gmail.com
+Classifier: Programming Language :: Python :: 3
+Classifier: License :: OSI Approved :: MIT License
+Requires-Python: >=3.6
+License-File: LICENSE

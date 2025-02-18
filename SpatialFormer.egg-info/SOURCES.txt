@@ -1,0 +1,15 @@
+LICENSE
+README.md
+setup.py
+SpatialFormer.egg-info/PKG-INFO
+SpatialFormer.egg-info/SOURCES.txt
+SpatialFormer.egg-info/dependency_links.txt
+SpatialFormer.egg-info/requires.txt
+SpatialFormer.egg-info/top_level.txt
+spatialformer/GraphSAGE.py
+spatialformer/__init__.py
+spatialformer/data_loader.py
+spatialformer/graphsage.py
+spatialformer/processor.py
+spatialformer/train.py
+spatialformer/utils.py

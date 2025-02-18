@@ -21,9 +21,14 @@ This package is supported for macOS and Linux. The package has been tested on th
 
 #### python requirements
 python >= 3.9
-If you are using AMD gpus, please install the pytorch via
+If you are using AMD gpus, please install the pytorch the same as our develop enviroment
 ```bash
-pip install torch==2.6.1 torchvision==0.20.1 torchaudio==2.5.1 --index-url https://download.pytorch.org/whl/rocm6.1
+pip install torch==2.3.1 torchvision==0.18.1 torchaudio==2.3.1 --index-url https://download.pytorch.org/whl/rocm6.0
+```
+Alternatively, if you are using NVDIA gpus, please refer to the pytorch webpage and install the pytorch that fit your device
+For example:
+```bash
+pip install torch==2.3.1 torchvision==0.18.1 torchaudio==2.3.1 --index-url https://download.pytorch.org/whl/cu121
 ```
 
 ## Installation

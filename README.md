@@ -14,7 +14,7 @@ Spatial transcriptomics quantifies gene expression within its spatial context, s
 ### Hardware requirements
 We provide the GPU and CPU version for users with different device levels. However, if a large scale of cells need to be calculated, the GPUs is mandatory to get the results effeciently. When using GPUs, AMD and IVIDIA GPUs are all supported.
 ### Software requirements
-#### OS requirementshttps://github.com/TerminatorJ/Spatialformer/tree/master
+#### OS requirements
 This package is supported for macOS and Linux. The package has been tested on the following systems:
 - macOS: Sequoia (15.3.1)
 - Linux: Ubuntu 16.04; SLES 15.5

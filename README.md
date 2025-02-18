@@ -19,8 +19,8 @@ This package is supported for macOS and Linux. The package has been tested on th
 - macOS: Sequoia (15.3.1)
 - Linux: Ubuntu 16.04; SLES 15.5
 
-#### python requirements
-python >= 3.9
+#### Python environment requirements
+python >= 3.9  
 If you are using AMD gpus, please install the pytorch the same as our develop enviroment
 ```bash
 pip install torch==2.3.1 torchvision==0.18.1 torchaudio==2.3.1 --index-url https://download.pytorch.org/whl/rocm6.0

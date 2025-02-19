@@ -30,18 +30,25 @@ conda create -n spatialformer python=3.9
 ### Install from PyPi
 If you are using AMD gpus
 ```bash
-pip install SpatialFormer[amd]
+pip install SpatialFormer[torch_amd]
 ```
 Alternatively, if you are using NVDIA gpus
 ```bash
-pip install SpatialFormer[nvidia]
+pip install SpatialFormer[torch_nvidia]
 ```
 
 ### Install from Github (AMD version in default)
 ```bash
 git clone https://github.com/TerminatorJ/Spatialformer/
 cd Spatialformer
-python setup.py install
+```
+if you are using AMD gpus
+```bash
+pip install -e .[torch_amd] --extra-index-url https://download.pytorch.org/whl/rocm6.0
+```
+whereas, if you are using NVIDIA gpus
+```bash
+pip install -e .[torch_nvidia] --extra-index-url https://download.pytorch.org/whl/cu121
 ```
 
 

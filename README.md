@@ -37,18 +37,18 @@ Alternatively, if you are using the NVDIA gpus
 pip install SpatialFormer --extra-index-url https://download.pytorch.org/whl/cu121
 ```
 
-### Install from Github (AMD version in default)
+### Install from Github
 ```bash
 git clone https://github.com/TerminatorJ/Spatialformer/
 cd Spatialformer
 ```
 if you are using the AMD gpus
 ```bash
-pip install -e .[torch_amd] --extra-index-url https://download.pytorch.org/whl/rocm6.0
+pip install -e --extra-index-url https://download.pytorch.org/whl/rocm6.0
 ```
 whereas, if you are using the NVIDIA gpus
 ```bash
-pip install -e .[torch_nvidia] --extra-index-url https://download.pytorch.org/whl/cu121
+pip install -e --extra-index-url https://download.pytorch.org/whl/cu121
 ```
 
 

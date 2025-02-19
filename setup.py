@@ -18,16 +18,5 @@ setup(
     python_requires='>=3.9', 
     install_requires=requirements,
     packages=find_packages(include=['spatialformer']),
-    extras_require={
-        'torch_amd': [
-            'torch==2.3.1',  
-            'torchaudio==2.3.1',
-            'torchvision==0.18.1'
-        ],
-        'torch_nvidia': [
-            'torch==2.3.1',
-            'torchvision==0.18.1',
-            'torchaudio==2.3.1',
-        ]
-    },
+   
 )

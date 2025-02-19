@@ -75,7 +75,7 @@ SpatialFormer provides a simple function to extract embeddings. By using the `sp
 
 SpatialFormer supports two methods for generating embeddings: 1) single input mode and 2) pairwise input mode. Below is an example of generating the AnnData embeddings:
 
-A simple example anndata can be downloaded [here](Spatialformer/downstream/data/covid_subsampled.h5ad)
+A simple example anndata can be downloaded [here](downstream/cell_cell_communication/data/covid_subsampled.h5ad)
 
 
 #### Single Input Mode

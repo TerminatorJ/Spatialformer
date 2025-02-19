@@ -78,8 +78,17 @@ SpatialFormer supports two methods for generating embeddings: 1) single input mo
 A simple example anndata can be downloaded [here](downstream/cell_cell_communication/data/covid_subsampled.h5ad)
 
 
+#### Loading the anndata
+
+```python
+import scanpy as sc
+adata = sc.read_h5ad("./downstream/cell_cell_communication/data/covid_subsampled.h5ad")
+```
+
+
 #### Single Input Mode
 ```python
+import SpatialFormer as sp
 embed_adata = sp.tl.embed_data(adata, 
                               tissue,
                               condition,

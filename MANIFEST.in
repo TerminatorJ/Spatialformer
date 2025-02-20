@@ -1,4 +1,3 @@
-include spatialformer/config/_config_train_large_pair.json
-include spatialformer/config/_config_train.json
+include spatialformer/config/*.json
 
-include spatialformer/tokenizer/tokenv4.json
+include spatialformer/tokenizer/*.json

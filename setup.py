@@ -6,7 +6,7 @@ with open('./requirements.txt', 'r') as f:
 
 setup(
     name='spatialformer',  
-    version='0.0.14',
+    version='0.0.15',
     author='TerminatorJ',
     author_email='wangjun19950708@gmail.com',
     description='A single-cell foundation model focus on the spatial cell-cell colocalization',
@@ -18,8 +18,10 @@ setup(
     python_requires='>=3.9', 
     install_requires=requirements,
     include_package_data=True,
-    packages=find_packages(include=['spatialformer', 'spatialformer.tools', 'spatialformer.model', 
-                                    'spatialformer.model.submodules', 'spatialformer.config', 
-                                    'spatialformer.tokenizer']),
+    package_data={
+        'spatialformer.config': ['*.json'],  # Explicitly include JSON files
+        'spatialformer.tokenizer': ['*.json']
+    }
+    packages=find_packages(include=['spatialformer', 'spatialformer.*']),
    
 )

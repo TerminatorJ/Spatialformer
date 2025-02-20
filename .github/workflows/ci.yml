@@ -27,7 +27,6 @@ jobs:
                 run: docker build -t $LOCAL_DOCKER_TAG -f ./docker/Dockerfile .
 
             -   name: check file
-                run: |
-                    docker run deeplocrna-docker:latest ls /home/
+                run: docker run spatialformer-docker:latest ls /home/
 
 

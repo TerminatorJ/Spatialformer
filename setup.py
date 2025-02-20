@@ -5,7 +5,7 @@ with open('./requirements.txt', 'r') as f:
     requirements = f.read().splitlines()
 
 setup(
-    name='SpatialFormer',  
+    name='spatialformer',  
     version='0.0.6',
     author='TerminatorJ',
     author_email='wangjun19950708@gmail.com',

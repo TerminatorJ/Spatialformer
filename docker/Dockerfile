@@ -16,7 +16,15 @@ ENV PATH="/opt/conda/bin:${PATH}"
 
 
 WORKDIR /home/
+COPY spatialformer spatialformer
+COPY setup.py .
+COPY README.md .
+COPY requirements.txt .
 
+RUN pip install setuptools wheel
+RUN python setup.py sdist bdist_wheel
+RUN pip install twine
+RUN twine upload dist/* -u __token__ -p pypi-AgEIcHlwaS5vcmcCJDMyZjFiMTgwLTRmNWYtNDFjNS05MTc1LWFlMzdjOWRjZjYzYQACKlszLCJhYjA2MzQzNS05MWU2LTRkOTctOTEzMi1iMTlmODA1ZThhMzYiXQAABiAoqIRz9KZCpA6HiTSuPqVstOmZS6VXAIHl9Z_W66iTJg
 RUN conda install python=3.9
 RUN pip install SpatialFormer --extra-index-url https://download.pytorch.org/whl/cu121
-CMD ["python", "-c", "import spatialformer"]
+RUN python -c "import spatialformer"

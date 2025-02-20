@@ -17,6 +17,7 @@ setup(
     ],
     python_requires='>=3.9', 
     install_requires=requirements,
+    include_package_data=True,
     packages=find_packages(include=['spatialformer', 'spatialformer.tools', 'spatialformer.model', 
                                     'spatialformer.model.submodules', 'spatialformer.config', 
                                     'spatialformer.tokenizer']),

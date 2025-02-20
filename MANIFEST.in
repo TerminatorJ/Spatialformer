@@ -1,0 +1,3 @@
+recursive-include spatialformer/config *
+
+recursive-include spatialformer/tokenizer *

@@ -127,8 +127,8 @@ embed_adata = sp.tl.embed_data(adata,
                             model_ckp_path, 
                             batch_size,
                             mode = "pair",
-                            left_cell = ["aacid_0789", "aacid_0799"],
-                            right_cell = ["aacid_0635", "aacid_0652"],
+                            left_cell = ["20532-0-1-0-1", "222101-0-0-1"],
+                            right_cell = ["483188-0-0-1", "513429-0-0-1"],
                             num_workers = 8
                             )
 ```

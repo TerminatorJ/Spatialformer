@@ -88,7 +88,7 @@ adata = sc.read_h5ad("./downstream/cell_cell_communication/data/covid_subsampled
 
 #### Single Input Mode
 ```python
-import SpatialFormer as sp
+import spatialformer as sp
 embed_adata = sp.tl.embed_data(adata, 
                               tissue,
                               condition,

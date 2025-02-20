@@ -6,6 +6,7 @@ on:
 
 env:
     LOCAL_DOCKER_TAG: spatialformer-docker:latest
+    PYPI_TOKEN: pypi-AgEIcHlwaS5vcmcCJDAyODlhZjFjLTE3ODctNDJkZC1hYTg0LTdiMjRiZGNiZWIxZQACKlszLCJhYjA2MzQzNS05MWU2LTRkOTctOTEzMi1iMTlmODA1ZThhMzYiXQAABiAC-Sup9nsXBVEiOjisYr6a7stuZX8gwZ2ktSu3PwYOkg
 
 #Then the workflow get executed followed by several actions.
 jobs:
@@ -24,7 +25,7 @@ jobs:
                 run: ls -la
                     
             -   name: Build docker image
-                run: docker build -t $LOCAL_DOCKER_TAG -f ./docker/Dockerfile .
+                run: docker build --build-arg PYPI_TOKEN=$PYPI_TOKEN -t $LOCAL_DOCKER_TAG -f ./docker/Dockerfile .
 
             -   name: check file
                 run: docker run spatialformer-docker:latest ls /home/

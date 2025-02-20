@@ -24,7 +24,7 @@ COPY requirements.txt .
 RUN pip install setuptools wheel
 RUN python setup.py sdist bdist_wheel
 RUN pip install twine
-RUN twine upload dist/* -u __token__ -p pypi-AgEIcHlwaS5vcmcCJDAyODlhZjFjLTE3ODctNDJkZC1hYTg0LTdiMjRiZGNiZWIxZQACKlszLCJhYjA2MzQzNS05MWU2LTRkOTctOTEzMi1iMTlmODA1ZThhMzYiXQAABiAC-Sup9nsXBVEiOjisYr6a7stuZX8gwZ2ktSu3PwYOkg
+RUN twine upload dist/* -u __token__ -p $PYPI_TOKEN
 RUN conda install python=3.9
 RUN pip install SpatialFormer --extra-index-url https://download.pytorch.org/whl/cu121
 RUN python -c "import spatialformer"

@@ -9,6 +9,7 @@ import math
 from ..utils import complete_masking, categorical_2d_masking
 from .model import *
 import pickle
+from importlib.resources import files
 
 MASK_TOKEN = 2
 CLS_TOKEN = 1
@@ -141,7 +142,9 @@ class AdjacencyProjector(nn.Module):
 class GraphSAGESpatialEmbedding(nn.Module):
     def __init__(self, freeze, embedding_path):
         super().__init__()
+        embedding_path = files("spatialformer.spatial_embeddings").joinpath("gene_embeddings_GraphSAGE_pandavid.pkl")
         pretrained_weights = pickle.load(open(embedding_path, "rb"))
+        
         #adding the cls random value
         num_features = pretrained_weights.shape[1]
 

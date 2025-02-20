@@ -6,7 +6,7 @@ with open('./requirements.txt', 'r') as f:
 
 setup(
     name='spatialformer',  
-    version='0.0.18',
+    version='0.0.19',
     author='TerminatorJ',
     author_email='wangjun19950708@gmail.com',
     description='A single-cell foundation model focus on the spatial cell-cell colocalization',

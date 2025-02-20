@@ -17,6 +17,6 @@ setup(
     ],
     python_requires='>=3.9', 
     install_requires=requirements,
-    packages=find_packages(include=['spatialformer', 'spatialformer.tools']),
+    packages=find_packages(include=['spatialformer', 'spatialformer.tools', 'spatialformer.model']),
    
 )

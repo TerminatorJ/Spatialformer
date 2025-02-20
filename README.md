@@ -77,6 +77,14 @@ SpatialFormer supports two methods for generating embeddings: 1) single input mo
 
 A simple example anndata can be downloaded [here](downstream/cell_cell_communication/data/covid_subsampled.h5ad)
 
+The checkpoints can be downloaded according to different use cases as below:
+
+| Input type | Tissue types | Size (number of slides) | Links |
+| :------------------------   | :--------- | :--------- | :--------- | 
+| Paired | Lung | 1 | https://figshare.com/articles/dataset/VUILD102LF_checkpoint/28452137?file=52503359 |
+| Paired | 13 types | 61 | https://figshare.com/articles/dataset/61slides_checkpoints/28452167?file=52503416 |
+| Single | 13 types| 61 | https://figshare.com/articles/dataset/single_input/28452209?file=52503695 |
+| Paired | 1 | 25 | https://figshare.com/articles/dataset/lung_paired_checkpoint/28452233?file=52504040 |
 
 #### Loading the anndata
 

@@ -6,7 +6,7 @@ with open('./requirements.txt', 'r') as f:
 
 setup(
     name='SpatialFormer',  
-    version='0.0.5',
+    version='0.0.6',
     author='TerminatorJ',
     author_email='wangjun19950708@gmail.com',
     description='A single-cell foundation model focus on the spatial cell-cell colocalization',
@@ -17,6 +17,6 @@ setup(
     ],
     python_requires='>=3.9', 
     install_requires=requirements,
-    packages=find_packages(include=['spatialformer']),
+    packages=find_packages(include=['spatialformer', 'spatialformer.tools']),
    
 )

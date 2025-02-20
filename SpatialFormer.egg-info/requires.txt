@@ -2,7 +2,6 @@ anndata==0.8.0
 communities==3.0.0
 community==1.0.0b1
 datasets==3.0.1
-fairseq==0.12.2
 h5py==3.11.0
 matplotlib==3.7.3
 networkx==3.0

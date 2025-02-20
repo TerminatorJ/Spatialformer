@@ -10,7 +10,7 @@ p_path = current_file_path.parents[0]
 submodule_dir = os.path.join(p_path, "submodules")
 sys.path.append(submodule_dir)
 # import pdb; pdb.set_trace()
-from modules import Conv1DBlock,  AltBlock
+from modules import Conv1DBlock, AltBlock
 from alibi import get_alibi
 from masked_conv import MaskedConv2d
 

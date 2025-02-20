@@ -3,8 +3,7 @@ name: CI
 on: 
     push: #(required)trigger this event if someone use push of this repository, # more trigger events can refer to: https://docs.github.com/en/actions/using-workflows/events-that-trigger-workflows
         branches: [ main ]
-    pull_request:
-        branches: [ main ]
+
 env:
     LOCAL_DOCKER_TAG: deeplocrna-docker:latest
 
@@ -27,16 +26,6 @@ jobs:
 
             -   name: check file
                 run: |
-                    docker run deeplocrna-docker:latest ls /home/DeepLocRNA
-                    docker run deeplocrna-docker:latest ls /home/DeepLocRNA/DeepLocRNA
-                    # docker run deeplocrna-docker:latest nvidia-smi
+                    docker run deeplocrna-docker:latest ls /home/
 
-            -   name: Install BioLib CLI
-                run: pip3 install -U pybiolib
 
-            -   name: Publish new version to BioLib if on main branch
-                #if: github.ref == 'refs/heads/developer2'
- 
-                run: cd webserver && biolib push $BIOLIB_PROJECT_URI
-                env:
-                    BIOLIB_TOKEN: ${{ secrets.BIOLIB_TOKEN }}

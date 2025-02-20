@@ -1,11 +1,11 @@
 name: CI
 
 on: 
-    push: #(required)trigger this event if someone use push of this repository, # more trigger events can refer to: https://docs.github.com/en/actions/using-workflows/events-that-trigger-workflows
+    push: 
         branches: [ main ]
 
 env:
-    LOCAL_DOCKER_TAG: deeplocrna-docker:latest
+    LOCAL_DOCKER_TAG: spatialformer-docker:latest
 
 #Then the workflow get executed followed by several actions.
 jobs:
@@ -19,7 +19,7 @@ jobs:
             -   name: Setup Python
                 uses: actions/setup-python@v2
                 with:
-                    python-version: 3.8
+                    python-version: 3.9
                     
             -   name: Build docker image
                 run: docker build -t $LOCAL_DOCKER_TAG -f ./Dockerfile .

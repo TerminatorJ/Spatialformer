@@ -19,7 +19,4 @@ WORKDIR /home/
 
 RUN conda install python=3.9
 RUN pip install SpatialFormer --extra-index-url https://download.pytorch.org/whl/cu121
-RUN python 'import SpatialFormer'
-
-# Verify installation by importing SpatialFormer
 CMD ["python", "-c", "import spatialformer"]

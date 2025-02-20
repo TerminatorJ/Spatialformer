@@ -30,11 +30,11 @@ conda create -n spatialformer python=3.9
 ### Install from PyPi
 If you are using the AMD gpus
 ```bash
-pip install SpatialFormer --extra-index-url https://download.pytorch.org/whl/rocm6.0
+pip install spatialformer --extra-index-url https://download.pytorch.org/whl/rocm6.0
 ```
 Alternatively, if you are using the NVDIA gpus
 ```bash
-pip install SpatialFormer --extra-index-url https://download.pytorch.org/whl/cu121
+pip install spatialformer --extra-index-url https://download.pytorch.org/whl/cu121
 ```
 
 ### Install from Github
@@ -77,6 +77,14 @@ SpatialFormer supports two methods for generating embeddings: 1) single input mo
 
 A simple example anndata can be downloaded [here](downstream/cell_cell_communication/data/covid_subsampled.h5ad)
 
+The checkpoints can be downloaded according to different use cases as below:
+
+| Input type | Tissue types | Size (number of slides) | Links |
+| :------------------------   | :--------- | :--------- | :--------- | 
+| Paired | 1(lung) | 1 | https://figshare.com/articles/dataset/VUILD102LF_checkpoint/28452137?file=52503359 |
+| Paired | 13 types | 62 | https://figshare.com/articles/dataset/61slides_checkpoints/28452167?file=52503416 |
+| Single | 13 types| 62 | https://figshare.com/articles/dataset/single_input/28452209?file=52503695 |
+| Paired | 1(lung) | 25 | https://figshare.com/articles/dataset/lung_paired_checkpoint/28452233?file=52504040 |
 
 #### Loading the anndata
 
@@ -88,7 +96,12 @@ adata = sc.read_h5ad("./downstream/cell_cell_communication/data/covid_subsampled
 
 #### Single Input Mode
 ```python
-import SpatialFormer as sp
+import spatialformer as sp
+method = "cls"
+tissue = "lung"
+condition = "disease"
+model_ckp_path = "./61slides.ckpt"
+batch_size = 4
 embed_adata = sp.tl.embed_data(adata, 
                               tissue,
                               condition,
@@ -102,6 +115,11 @@ embed_adata = sp.tl.embed_data(adata,
 ```
 #### Pairwise Input Mode
 ```python
+method = "cls"
+tissue = "lung"
+condition = "disease"
+model_ckp_path = "./61slides.ckpt"
+batch_size = 4
 embed_adata = sp.tl.embed_data(adata, 
                               tissue,
                               condition,

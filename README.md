@@ -97,6 +97,11 @@ adata = sc.read_h5ad("./downstream/cell_cell_communication/data/covid_subsampled
 #### Single Input Mode
 ```python
 import spatialformer as sp
+method = "cls"
+tissue = "lung"
+condition = "disease"
+model_ckp_path = "./61slides.ckpt"
+batch_size = 4
 embed_adata = sp.tl.embed_data(adata, 
                               tissue,
                               condition,
@@ -110,6 +115,11 @@ embed_adata = sp.tl.embed_data(adata,
 ```
 #### Pairwise Input Mode
 ```python
+method = "cls"
+tissue = "lung"
+condition = "disease"
+model_ckp_path = "./61slides.ckpt"
+batch_size = 4
 embed_adata = sp.tl.embed_data(adata, 
                               tissue,
                               condition,

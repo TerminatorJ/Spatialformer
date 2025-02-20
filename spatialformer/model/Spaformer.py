@@ -137,7 +137,7 @@ class AdjacencyProjector(nn.Module):
 class GraphSAGESpatialEmbedding(nn.Module):
     def __init__(self, freeze):
         super().__init__()
-        pretrained_weights = pickle.load(open("/home/sxr280/Spatialformer/data/gene_embeddings_GraphSAGE.pkl", "rb"))
+        pretrained_weights = pickle.load(open("../spatial_embeddings/gene_embeddings_GraphSAGE.pkl", "rb"))
         self.emb = nn.Embedding.from_pretrained(pretrained_weights, freeze=freeze)
         print("require grad:", self.emb.weight.requires_grad)
 

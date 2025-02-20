@@ -6,8 +6,6 @@ on:
     pull_request:
         branches: [ main ]
 env:
-    BIOLIB_LOG: debug
-    BIOLIB_PROJECT_URI: KU/DeepLocRNA
     LOCAL_DOCKER_TAG: deeplocrna-docker:latest
 
 #Then the workflow get executed followed by several actions.
@@ -25,7 +23,7 @@ jobs:
                     python-version: 3.8
                     
             -   name: Build docker image
-                run: docker build -t $LOCAL_DOCKER_TAG -f webserver/Dockerfile .
+                run: docker build -t $LOCAL_DOCKER_TAG -f ./Dockerfile .
 
             -   name: check file
                 run: |

@@ -21,7 +21,7 @@ setup(
     package_data={
         'spatialformer.config': ['*.json'],  # Explicitly include JSON files
         'spatialformer.tokenizer': ['*.json']
-    }
+    },
     packages=find_packages(include=['spatialformer', 'spatialformer.*']),
    
 )

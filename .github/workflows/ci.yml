@@ -22,6 +22,9 @@ jobs:
                     python-version: 3.9
             -   name: List files for debugging
                 run: ls -la
+            
+            -   name: Check PYPI Token
+                run: echo "${{ secrets.PYPI_TOKEN }}"
                     
             -   name: Build docker image
                 run: docker build --build-arg PYPI_TOKEN=${{ secrets.PYPI_TOKEN }} -t $LOCAL_DOCKER_TAG -f ./docker/Dockerfile .

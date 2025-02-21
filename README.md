@@ -5,7 +5,7 @@ This is the official codebase for the SpatialFormer, the first single cell spati
 [![License](https://img.shields.io/badge/license-MIT-blue)](https://github.com/username/repo/blob/main/LICENSE)
 ![PyPI - Downloads](https://img.shields.io/pypi/dm/spatialformer)
 [![PyPIDownloadsTotal](https://pepy.tech/badge/spatialformer)](https://pepy.tech/project/spatialformer)
-![Last Commit](https://img.shields.io/github/last-commit/TerminatorJ/repo)
+![Last Commit](https://img.shields.io/github/last-commit/TerminatorJ/Spatialformer)
 
 ![SpatialFormer](./rm_figs/github_main_figure.png)
 

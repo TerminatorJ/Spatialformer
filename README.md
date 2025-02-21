@@ -3,12 +3,17 @@
 This is the official codebase for the SpatialFormer, the first single cell spatial foundation model to learn the universal representation (subcellular molecular & cellular spatial proximity) by multi-tasks learning.
 
 [![License](https://img.shields.io/badge/license-MIT-blue)](https://github.com/username/repo/blob/main/LICENSE)
+![PyPI - Downloads](https://img.shields.io/pypi/dm/spatialformer)
+[![PyPIDownloadsTotal](https://pepy.tech/badge/spatialformer)](https://pepy.tech/project/spatialformer)
+![Last Commit](https://img.shields.io/github/last-commit/TerminatorJ/Spatialformer)
+
 
 ![SpatialFormer](./rm_figs/github_main_figure.png)
 
 ## Overview
 Spatial transcriptomics quantifies gene expression within its spatial context, significantly advancing biomedical research. Understanding gene spatial expression and the organization of multicellular systems is vital for disease diagnosis and studying biological processes. However, existing models often struggle to integrate gene expression data with cellular spatial information effectively. In this study, we introduce SpatialFormer, a hybrid framework combining convolutional networks and transformers to learn single-cell multimodal and multi-scale information in the niche context, including expression data and subcellular gene spatial distribution. Pre-trained on 300 million cell pairs from 12 million spatially resolved single cells across 62 Xenium slides, SpatialFormer merges gene spatial expression profiles with cell niche information via the pair-wise training strategy. Our findings demonstrate that SpatialFormer distills biological signals across various tasks, including single-cell batch correction, cell-type annotation, co-localization detection, and identifying gene pairs that are critical for the immune cell-cell interactions involved in the regulation of lung fibrosis. These advancements enhance our understanding of cellular dynamics and offer new pathways for applications in biomedical research. 
 
+For the instructions of SpatialFormer, please refer to our jupyter notebook [tutorial](downstream/)
 
 ## System Requirements
 ### Hardware requirements
@@ -98,8 +103,8 @@ adata = sc.read_h5ad("./downstream/cell_cell_communication/data/covid_subsampled
 ```python
 import spatialformer as sp
 method = "cls"
-tissue = "lung"
-condition = "disease"
+tissue = "Lung"
+condition = "Disease"
 model_ckp_path = "./61slides.ckpt"
 batch_size = 4
 embed_adata = sp.tl.embed_data(adata, 
@@ -116,8 +121,8 @@ embed_adata = sp.tl.embed_data(adata,
 #### Pairwise Input Mode
 ```python
 method = "cls"
-tissue = "lung"
-condition = "disease"
+tissue = "Lung"
+condition = "Disease"
 model_ckp_path = "./61slides.ckpt"
 batch_size = 4
 embed_adata = sp.tl.embed_data(adata, 
@@ -127,8 +132,8 @@ embed_adata = sp.tl.embed_data(adata,
                             model_ckp_path, 
                             batch_size,
                             mode = "pair",
-                            left_cell = ["aacid_0789", "aacid_0799"],
-                            right_cell = ["aacid_0635", "aacid_0652"],
+                            left_cell = ["20532-0-1-0-1", "222101-0-0-1"],
+                            right_cell = ["483188-0-0-1", "513429-0-0-1"],
                             num_workers = 8
                             )
 ```

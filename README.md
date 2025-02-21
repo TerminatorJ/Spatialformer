@@ -6,7 +6,7 @@ This is the official codebase for the SpatialFormer, the first single cell spati
 ![PyPI - Downloads](https://img.shields.io/pypi/dm/spatialformer)
 [![PyPIDownloadsTotal](https://pepy.tech/badge/spatialformer)](https://pepy.tech/project/spatialformer)
 ![Last Commit](https://img.shields.io/github/last-commit/TerminatorJ/Spatialformer)
-![Visitor Count](https://visitor-badge.glitch.me/badge?page_id=TerminatorJ.Spatialformer)
+![Visitor Count](https://visitor-badge.glitch.me/badge?page_id=TerminatorJ.Spatialformer&color=green&label=Visitors)
 
 ![SpatialFormer](./rm_figs/github_main_figure.png)
 

@@ -111,8 +111,6 @@ class CustomDataCollator(object):
                 "Expression": self.full_exp,
                 "pair_label": pair_labels,
                 "token_type_ids": self.token_type_ids,
-                "left_cell_ids": left_cell_ids,
-                "right_cell_ids": right_cell_ids
             }
     def filldata(self, sample_index, full_tokens, gg_mtx, raw_exp, side):
 
@@ -551,11 +549,11 @@ class CustomDataModule(LightningDataModule):
 
 def create_dataloader_eval(datapath, num_workers, batch_size, directionality, 
                            context_length, padding_idx, special_token_num, 
-                           n_bins, sep_token, cls_token, kfold = False, cur_fold = False, split = False, cell_id = False):
+                           n_bins, sep_token, cls_token, kfold = False, cur_fold = False, split = False, cell_id = False, shuffle=False):
 
     iter_dataset = DynamicHuggingFaceDatasetEval(datapath, kfold = kfold, cur_fold = cur_fold, split = split)
     collator = CustomDataCollator(directionality, context_length, padding_idx, special_token_num, n_bins, sep_token, cls_token, cell_id)
-    dataloader = DataLoader(iter_dataset, batch_size = batch_size,collate_fn=collator, num_workers=num_workers)
+    dataloader = DataLoader(iter_dataset, batch_size = batch_size,collate_fn=collator, num_workers=num_workers, shuffle=shuffle)
     return dataloader
 
 def create_dataloader_fast(sample_dataset, pair_index, labels, split, num_workers, batch_size, directionality, 

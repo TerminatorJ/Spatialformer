@@ -513,7 +513,12 @@ class DynamicHuggingFaceDatasetEval(IterableDataset):
 
         try:
             dataset = self.load_dataset(self.datapath)
+            # Get the total number
+            total_number = len(dataset)
 
+            # Shuffle the cells
+            np.random.seed(42)  # For reproducibility
+            shuffled_indices = np.random.permutation(total_number)
             if self.kfold:
                 train_dataset, test_dataset = self.kfold_split(dataset)
                 if self.split == "train":
@@ -521,7 +526,9 @@ class DynamicHuggingFaceDatasetEval(IterableDataset):
                 elif self.split == "test":
                     yield from test_dataset
             else:
-                iter_dataset = dataset.to_iterable_dataset()
+                #WARNING: if you use the to_iterable_dataset method, you won't get the whole datasets as the right order.
+                dataset = dataset.select(shuffled_indices)
+                iter_dataset = dataset.to_iterable_dataset(num_shards=64)
                 yield from iter_dataset 
 
         except FileNotFoundError:

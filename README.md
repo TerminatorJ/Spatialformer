@@ -13,7 +13,19 @@ This is the official codebase for the SpatialFormer, the first single cell spati
 ## Overview
 Spatial transcriptomics quantifies gene expression within its spatial context, significantly advancing biomedical research. Understanding gene spatial expression and the organization of multicellular systems is vital for disease diagnosis and studying biological processes. However, existing models often struggle to integrate gene expression data with cellular spatial information effectively. In this study, we introduce SpatialFormer, a hybrid framework combining convolutional networks and transformers to learn single-cell multimodal and multi-scale information in the niche context, including expression data and subcellular gene spatial distribution. Pre-trained on 300 million cell pairs from 12 million spatially resolved single cells across 62 Xenium slides, SpatialFormer merges gene spatial expression profiles with cell niche information via the pair-wise training strategy. Our findings demonstrate that SpatialFormer distills biological signals across various tasks, including single-cell batch correction, cell-type annotation, co-localization detection, and identifying gene pairs that are critical for the immune cell-cell interactions involved in the regulation of lung fibrosis. These advancements enhance our understanding of cellular dynamics and offer new pathways for applications in biomedical research. 
 
-For the instructions of SpatialFormer, please refer to our jupyter notebook [tutorial](downstream/)
+For the instructions of SpatialFormer, please refer to our jupyter notebook [tutorial](downstream/) on:
+
+The zero-shot tutorials 
+- [Dataset Integration](downstream/zero-shot_batch_correction/zero_shot_batch_integration.ipynb)
+- [Gene-gene colocalization1](downstream/cell_cell_communication/1.Tutorial_attention_analysis.ipynb)
+- [Gene-gene colocalization2](downstream/cell_cell_communication/2.Tutorial_perturbation_analysis.ipynb)
+- [Gene-gene colocalization3](downstream/cell_cell_communication/3.Tutorial_CCC_analysis_VUILD96MF.ipynb)
+- [Cell-cell colocalization](downstream/cell_cell_communication/cell_cell_communication_zero_shot_cross_slide.ipynb)
+
+The fine-tuning tutorials
+- [Cell type/niches annotation](downstream/cell_types_nich_annotation/Tutorial_cell_type_annotation.ipynb)
+
+
 
 ## System Requirements
 ### Hardware requirements

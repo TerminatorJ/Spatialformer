@@ -37,7 +37,7 @@ This package is supported for macOS and Linux. The package has been tested on th
 - Linux: Ubuntu 16.04; SLES 15.5
 
 #### Python environment requirements
-Create the spatialformer environment by anaconda (python >= 3.9 required)
+Create the spatialformer environment by anaconda (python >= 3.8 required)
 ```bash
 conda create -n spatialformer python=3.8
 ```

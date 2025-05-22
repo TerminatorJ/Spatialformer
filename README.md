@@ -39,7 +39,7 @@ This package is supported for macOS and Linux. The package has been tested on th
 #### Python environment requirements
 Create the spatialformer environment by anaconda (python >= 3.9 required)
 ```bash
-conda create -n spatialformer python=3.9
+conda create -n spatialformer python=3.8
 ```
 
 ## Installation

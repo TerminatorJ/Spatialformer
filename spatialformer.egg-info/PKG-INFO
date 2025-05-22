@@ -1,0 +1,38 @@
+Metadata-Version: 2.1
+Name: spatialformer
+Version: 0.0.20
+Summary: A single-cell foundation model focus on the spatial cell-cell colocalization
+Home-page: https://github.com/TerminatorJ/Spatialformer/
+Author: TerminatorJ
+Author-email: wangjun19950708@gmail.com
+Classifier: Programming Language :: Python :: 3
+Classifier: License :: OSI Approved :: MIT License
+Requires-Python: >=3.8
+License-File: LICENSE
+Requires-Dist: anndata==0.8.0
+Requires-Dist: communities==3.0.0
+Requires-Dist: community==1.0.0b1
+Requires-Dist: datasets==3.0.1
+Requires-Dist: h5py==3.11.0
+Requires-Dist: matplotlib==3.7.3
+Requires-Dist: networkx==3.0
+Requires-Dist: numba==0.56.4
+Requires-Dist: numpy==1.22.0
+Requires-Dist: pandas==2.0.3
+Requires-Dist: peft==0.8.2
+Requires-Dist: pyarrow==17.0.0
+Requires-Dist: python_louvain==0.16
+Requires-Dist: pytorch_lightning==1.9.4
+Requires-Dist: torch==2.3.1
+Requires-Dist: torchvision==0.18.1
+Requires-Dist: torchaudio==2.3.1
+Requires-Dist: scanpy==1.9.8
+Requires-Dist: scikit_learn==1.3.2
+Requires-Dist: scipy==1.10.1
+Requires-Dist: seaborn==0.13.0
+Requires-Dist: sim_fish==0.2.0
+Requires-Dist: torch_geometric==2.5.3
+Requires-Dist: torchmetrics==0.11.4
+Requires-Dist: tqdm==4.66.5
+Requires-Dist: umap==0.1.1
+Requires-Dist: umap_learn==0.5.4

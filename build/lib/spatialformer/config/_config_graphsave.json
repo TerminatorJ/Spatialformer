@@ -1,0 +1,13 @@
+{
+    "feature_num": 50,
+    "hidden_dim": 64,
+    "output_dim": 128,
+    "total_step": 10000,
+    "strategy": "ddp",
+    "lr": 0.001,
+    "batch_size": 1024
+
+
+
+
+}

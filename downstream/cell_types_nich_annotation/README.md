@@ -1,3 +1,6 @@
+For the cell type/niche annotation task, we didn't implement the task in LUMI cluster. Instead, we use the DIKU cluster, from the KU computer science department, to conduct the benchmarking comparison.
+
+
 for scFoundation, the evaluation code can be found at: /home/sxr280/scFoundation/model/get_embedding.py
 
 ```python

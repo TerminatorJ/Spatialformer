@@ -1,4 +1,4 @@
-For the cell type/niche annotation task, we didn't implement the task in LUMI cluster. Instead, we use the DIKU cluster, from the KU computer science department, to conduct the benchmarking comparison.
+For the cell type/niche annotation task, we didn't implement them in LUMI cluster which is deployed AMD GPUs. Instead, we use the DIKU cluster, from the KU computer science department, to conduct the benchmarking comparison with scFoundation, scGPT, and Geneformer, since they are all developed base on the NVIDIA gpus.
 
 
 For scFoundation, the evaluation code can be found at: /home/sxr280/scFoundation/model/get_embedding.py

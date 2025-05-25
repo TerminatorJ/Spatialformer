@@ -1,7 +1,7 @@
 For the cell type/niche annotation task, we didn't implement the task in LUMI cluster. Instead, we use the DIKU cluster, from the KU computer science department, to conduct the benchmarking comparison.
 
 
-for scFoundation, the evaluation code can be found at: /home/sxr280/scFoundation/model/get_embedding.py
+For scFoundation, the evaluation code can be found at: /home/sxr280/scFoundation/model/get_embedding.py
 
 ```python
 # nohup python get_embedding.py --task_name David1M_0.1fra_val --input_type singlecell --output_type cell --pool_type all --tgthighres f1 --data_path /home/sxr280/Spatialformer/data/val_frac10.csv --save_path ./examples/enhancement/ --pre_normalized F --version rde > val.log &

@@ -101,7 +101,7 @@ The checkpoints can be downloaded according to different use cases as below:
 | Input type | Tissue types | Size (number of slides) | Links |
 | :------------------------   | :--------- | :--------- | :--------- | 
 | Paired | 1(lung) | 1 | https://figshare.com/articles/dataset/VUILD102LF_checkpoint/28452137?file=52503359 |
-| Paired | 13 types | 62 | https://figshare.com/articles/dataset/61slides_checkpoints/28452167?file=52503416 |
+| Paired | 13 types | 61 | https://figshare.com/articles/dataset/61slides_checkpoints/28452167?file=52503416 |
 | Single | 13 types| 62 | https://figshare.com/articles/dataset/single_input/28452209?file=52503695 |
 | Paired | 1(lung) | 25 | https://figshare.com/articles/dataset/lung_paired_checkpoint/28452233?file=52504040 |
 

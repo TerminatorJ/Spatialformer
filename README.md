@@ -119,7 +119,7 @@ import spatialformer as sp
 method = "cls"
 tissue = "Lung"
 condition = "Disease"
-model_ckp_path = "./61slides.ckpt"
+model_ckp_path = "./singleinput.ckpt"
 batch_size = 4
 embed_adata = sp.tl.embed_data(adata, 
                               tissue,

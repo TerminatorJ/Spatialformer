@@ -13,6 +13,8 @@ This is the official codebase for the SpatialFormer, the first single cell spati
 ## Overview
 Spatial transcriptomics quantifies gene expression within its spatial context, significantly advancing biomedical research. Understanding gene spatial expression and the organization of multicellular systems is vital for disease diagnosis and studying biological processes. However, existing models often struggle to integrate gene expression data with cellular spatial information effectively. In this study, we introduce SpatialFormer, a hybrid framework combining convolutional networks and transformers to learn single-cell multimodal and multi-scale information in the niche context, including expression data and subcellular gene spatial distribution. Pre-trained on 300 million cell pairs from 12 million spatially resolved single cells across 62 Xenium slides, SpatialFormer merges gene spatial expression profiles with cell niche information via the pair-wise training strategy. Our findings demonstrate that SpatialFormer distills biological signals across various tasks, including single-cell batch correction, cell-type annotation, co-localization detection, and identifying gene pairs that are critical for the immune cell-cell interactions involved in the regulation of lung fibrosis. These advancements enhance our understanding of cellular dynamics and offer new pathways for applications in biomedical research. 
 
+## Tutorials
+
 For the instructions of SpatialFormer, please refer to our jupyter notebook [tutorials](downstream/) on:
 
 The zero-shot tutorials 
@@ -100,7 +102,7 @@ The checkpoints can be downloaded according to different use cases as below:
 | Input type | Tissue types | Size (number of slides) | Links |
 | :------------------------   | :--------- | :--------- | :--------- | 
 | Paired | 1(lung) | 1 | https://figshare.com/articles/dataset/VUILD102LF_checkpoint/28452137?file=52503359 |
-| Paired | 13 types | 62 | https://figshare.com/articles/dataset/61slides_checkpoints/28452167?file=52503416 |
+| Paired | 13 types | 61 | https://figshare.com/articles/dataset/61slides_checkpoints/28452167?file=52503416 |
 | Single | 13 types| 62 | https://figshare.com/articles/dataset/single_input/28452209?file=52503695 |
 | Paired | 1(lung) | 25 | https://figshare.com/articles/dataset/lung_paired_checkpoint/28452233?file=52504040 |
 
@@ -125,7 +127,7 @@ import spatialformer as sp
 method = "cls"
 tissue = "Lung"
 condition = "Disease"
-model_ckp_path = "./61slides.ckpt" #set your own path
+model_ckp_path = "./singleinput.ckpt"
 batch_size = 4
 embed_adata = sp.tl.embed_data(adata, 
                               tissue,

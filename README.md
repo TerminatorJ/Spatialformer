@@ -20,7 +20,8 @@ The zero-shot tutorials
 - [Gene-gene colocalization1](downstream/cell_cell_communication/1.Tutorial_attention_analysis.ipynb)
 - [Gene-gene colocalization2](downstream/cell_cell_communication/2.Tutorial_perturbation_analysis.ipynb)
 - [Gene-gene colocalization3](downstream/cell_cell_communication/3.Tutorial_CCC_analysis_VUILD96MF.ipynb)
-- [Cell-cell colocalization](downstream/cell_cell_communication/cell_cell_communication_zero_shot_cross_slide.ipynb)
+- [Cell-cell colocalization analysis](downstream/cell_cell_communication/cell_cell_communication_zero_shot_cross_slide.ipynb)
+- [Cell-cell colocalization prediction](downstream/cell_cell_communication/cell_cell_communication_zero_shot_breast.py)
 
 The fine-tuning tutorials
 - [Cell type/niches annotation](downstream/cell_types_nich_annotation/Tutorial_cell_type_annotation.ipynb)
@@ -103,6 +104,13 @@ The checkpoints can be downloaded according to different use cases as below:
 | Single | 13 types| 62 | https://figshare.com/articles/dataset/single_input/28452209?file=52503695 |
 | Paired | 1(lung) | 25 | https://figshare.com/articles/dataset/lung_paired_checkpoint/28452233?file=52504040 |
 
+
+SpatialFormer is mainly focus on the zero-shot learning for the single-cell spatial omics data. Therefore, extracting the embeddings should be the most frequently used in the downstream tasks.
+We support diversed input format for extracting the cell embeddings. The input can be ".h5ad", or "huggingface dataset".
+
+For the easiest implementation, ".h5ad" file can easily input and get the embedding out following the codes as below:
+
+
 #### Loading the anndata
 
 ```python
@@ -117,7 +125,7 @@ import spatialformer as sp
 method = "cls"
 tissue = "Lung"
 condition = "Disease"
-model_ckp_path = "./61slides.ckpt"
+model_ckp_path = "./61slides.ckpt" #set your own path
 batch_size = 4
 embed_adata = sp.tl.embed_data(adata, 
                               tissue,
@@ -135,7 +143,7 @@ embed_adata = sp.tl.embed_data(adata,
 method = "cls"
 tissue = "Lung"
 condition = "Disease"
-model_ckp_path = "./61slides.ckpt"
+model_ckp_path = "./61slides.ckpt" #set your own path
 batch_size = 4
 embed_adata = sp.tl.embed_data(adata, 
                               tissue,
@@ -150,6 +158,7 @@ embed_adata = sp.tl.embed_data(adata,
                             )
 ```
 
+
 | Arguments         | dtype |Description |
 | :------------------------   | :--------- | :--------- | 
 | adata | object  | An AnnData object that stores expression information by CellXGene.|
@@ -162,6 +171,74 @@ embed_adata = sp.tl.embed_data(adata,
 | left_cell | array_like | A list of cell IDs representing the query cells.|
 | right_cell | array_like | A list of cell IDs representing the key cells. |
 | num_workers | integer | The number of CPU cores to load the data. This value should match the number of workers specified in the data loader.|
+
+
+If the input data is a huggingface dataset, we have built a huggingface specified dataloader only for inference step:
+
+```python
+from datasets import load_from_disk,concatenate_datasets,load_dataset
+
+def load_model(model_ckp_path, device):
+    get_file_path = lambda path, filename: os.path.join("/scratch/project_465001820/Spatialformer", path, filename)
+    config_path = get_file_path("config", "_config_train_large_pair.json")
+    with open(config_path, 'r') as json_file:
+        config = json.load(json_file)
+    model = manual_train_fm(config = config)
+    ckp = torch.load(model_ckp_path, map_location=torch.device(device))
+    params = ckp["state_dict"]
+    model.load_state_dict(params)
+    model.eval()
+    model.to(device)
+    return model
+    
+model_ckp_path = "/scratch/project_465001027/Spatialformer/output/checkpoints/step=0104000-train_total_loss=-2.3064-val_total_loss=0.0000.ckpt"
+model = load_model(model_ckp_path, "cuda")   
+
+dataloader = create_single_data_loaders(lung_dataset,  #define your own dataset here
+                                        cls_token = 1, 
+                                        padding_idx = 0, 
+                                        sep_token = 1949, 
+                                        batch_size=batch_size, 
+                                        context_length=500, 
+                                        special_token_num = 4, 
+                                        split_num = 1, 
+                                        num_workers = 64,
+                                        mode="eval")
+all_embeds = []                                       
+with torch.no_grad(): 
+    for i, batch in tqdm(enumerate(dataloader)):
+        
+        counter += batch_size
+        tissues = batch["Tissues"]
+        conditions = batch["Conditions"]
+        anns = batch["Annotations"]
+        attn_mask = batch["attention_mask"]
+        embeddings, _ = model.get_embeddings(batch, [-1], True, False) #normal prob                                 
+        embeddings = embeddings[0][:,0,:].detach().cpu().numpy()
+        all_embeds.append(embeddings)
+
+```
+
+
+
+
+### Training the model
+
+The model can be further pretrained with the following codes.
+Get the script/train.py for pretraining as below:
+
+Pretrain the singular input model
+```python
+python ./script/train.py --config /scratch/project_465001820/Spatialformer/config/_config_train_large_single.json
+```
+
+Pretrain the doublet input model
+```python
+python ./script/train.py --config /scratch/project_465001820/Spatialformer/config/_config_train_large_pair.json
+```
+
+
+
 
 ### Star Trend
 

@@ -9,8 +9,8 @@ import logging
 import json
 from typing import List, Optional
 from torch.utils.data import Dataset, DataLoader
-# import pdb; pdb.set_trace()
-from ..train import manual_train_fm
+from spatialformer.train import manual_train_fm
+import pickle
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
 logger = logging.getLogger("Spatialformer")
@@ -19,6 +19,27 @@ logger = logging.getLogger("Spatialformer")
 #To get the file from the other path as the parent directory
 
 get_file_path = lambda path, filename: os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), path, filename)
+
+
+def valid_mean_embedding(attn_mask_array, embeddings_array):
+    # Convert attn_mask to numpy
+    embedding_raw = embeddings_array[:, 5:, :]          # (batch, new_seq_len, embed_dim)
+    attn_mask_raw = attn_mask_array[:, 5:]              # (batch, new_seq_len)
+    
+    # Create mask for valid positions
+    mask = (attn_mask_raw != 0)[..., np.newaxis]        # (batch, new_seq_len, 1)
+    
+    # Compute the number of valid positions per sequence
+    length_num = (attn_mask_raw != 0).sum(axis=1, keepdims=True)  # (batch, 1)
+    
+    # Mask embeddings and sum across sequence dimension
+    embedding_val = (embedding_raw * mask).sum(axis=1)            # (batch, embed_dim)
+    
+    # Compute mean embedding per cell
+    cell_embedding = embedding_val / length_num   
+    return cell_embedding
+
+
 
 def embed_data(adata,
                tissue, 
@@ -29,10 +50,13 @@ def embed_data(adata,
                config_path = get_file_path("config", "_config_train_large_pair.json"),
                token_path = get_file_path("tokenizer", "tokenv4.json"),
                mode = "single",
+               only_loader = False,
                threshold = 0.8,
                left_cell: Optional[List] = None,
                right_cell: Optional[List] = None,
+               pair_label = None,
                num_workers = 0,
+               reveal_name = False
                ):
     #fetch the config
     with open(config_path, 'r') as json_file:
@@ -57,54 +81,67 @@ def embed_data(adata,
         all_embeddings = []
         all_pairs = []
         with torch.no_grad():
-            for i, batch in tqdm(enumerate(dataloader)):
-                
-                #getting the last layer
-                last_hidden_repr, co_adj_prob = model.get_embeddings(batch, [-1], False, True)#return the probabilities of the gene gene cooccurrence
+            for i, batch in enumerate(tqdm(dataloader, total=int(len(dataset)/batch_size), desc="Embedding")):
+
+                # Getting the last layer
+                last_hidden_repr, co_adj_prob = model.get_embeddings(batch, [-1], False, True)
                 if method == "cls":
-                    embeddings = last_hidden_repr[0][:,0] #getting the embeddings of cls tokens
+                    embeddings = last_hidden_repr[0][:,0].detach().cpu()
                 elif method == "gene":
-                    #optional, we can use the gene embeddings
-                    embeddings = torch.mean(last_hidden_repr[0][:,5:], dim=1) 
+                    attn_mask = batch["attention_mask"]
+                    attn_mask_array = attn_mask.detach().cpu().numpy()
+                    embeddings_array = last_hidden_repr[0].detach().cpu().numpy()
+                    embeddings = valid_mean_embedding(attn_mask_array, embeddings_array)
+                    # embeddings = torch.mean(last_hidden_repr[0][:,5:], dim=1)
                 else:
                     raise ValueError(f"Unsupported method: '{method}'. Please use 'cls' or 'gene'.")
-                #reveal the gene pair names:
-                batch_pairs = reveal_name(GeneTokenizer = tokenizer, co_adj_prob = co_adj_prob, threshold = threshold, batch = batch)
-                # import pdb; pdb.set_trace()
-                # logger.info(f"{len(all_pairs)} pairs selected")
+                if reveal_name:
+                    batch_pairs = reveal_name(GeneTokenizer=tokenizer, co_adj_prob=co_adj_prob, threshold=threshold, batch=batch)
+                    logger.info(f"Step {i}: reveal_name took {time.time() - t2:.2f}s")
+                    all_pairs += batch_pairs
+
+                # Track memory after processing the batch
+                allocated_memory_after = torch.cuda.memory_allocated() / 1e9  # Convert to GB
+                reserved_memory_after = torch.cuda.memory_reserved() / 1e9  # Convert to GB
+                logger.info(f"Batch {i}: Allocated memory after processing: {allocated_memory_after:.2f} GB")
+                logger.info(f"Batch {i}: Reserved memory after processing: {reserved_memory_after:.2f} GB")
+
                 all_embeddings.append(embeddings)
-                all_pairs += batch_pairs
-        # import pdb; pdb.set_trace()
-        combined_embeddings = torch.concat(all_embeddings).detach().cpu().numpy()
+
+        combined_embeddings = torch.concat(all_embeddings).numpy()
         adata.obsm["X_SpaF"] = combined_embeddings
-        adata.obs["Gene_Pairs"] = all_pairs
+        if reveal_name:
+            adata.obs["Gene_Pairs"] = all_pairs
         return adata
     elif mode == "pair":
         tokenizer = GeneTokenizer(token_path, mode = mode, tissue = tissue, condition = condition)
-        dataset = GeneExpressionPairDataset(adata, left_cell, right_cell, tokenizer)
+        dataset = GeneExpressionPairDataset(adata, left_cell, right_cell, pair_label, tokenizer)
         dataloader = DataLoader(dataset, batch_size=batch_size, collate_fn=collate_fn)
-        all_embeddings = []
-        all_prob = []
-        with torch.no_grad():
-            for i, batch in tqdm(enumerate(dataloader)):
-                
-                #getting the last layer
-                last_hidden_repr, probabilities = model.get_embeddings(batch, [-1], True, False)
-                cls_embeddings = last_hidden_repr[0][:,0]
-                all_embeddings.append(cls_embeddings)
-                # probabilities = probabilities.detach().cpu().numpy()
-                #calculating the reverse pair results
-                rev_batch = rearrange_sentences(batch)
-                rev_last_hidden_repr, rev_probabilities = model.get_embeddings(rev_batch, [-1], True, False)
-                # import pdb; pdb.set_trace()
-                result_tensors = list(map(lambda x, y: process_tensors(x, y), probabilities, rev_probabilities))
-                confirm_prob = torch.stack(result_tensors).detach().cpu().numpy()
-                all_prob.append(confirm_prob)
-            combined_embeddings = torch.concat(all_embeddings).detach().cpu().numpy()
-        # import pdb; pdb.set_trace()
-        # adata.obsm["X_SpaF"] = combined_embeddings
-
-        return combined_embeddings, all_prob
+        if only_loader:
+            return dataloader
+        else:
+            all_embeddings = []
+            all_prob = []
+            with torch.no_grad():
+                for i, batch in tqdm(enumerate(dataloader)):
+                    
+                    #getting the last layer
+                    last_hidden_repr, probabilities = model.get_embeddings(batch, [-1], True, False)
+                    cls_embeddings = last_hidden_repr[0][:,0]
+                    all_embeddings.append(cls_embeddings)
+                    # probabilities = probabilities.detach().cpu().numpy()
+                    #calculating the reverse pair results
+                    rev_batch = rearrange_sentences(batch)
+                    rev_last_hidden_repr, rev_probabilities = model.get_embeddings(rev_batch, [-1], True, False)
+                    # import pdb; pdb.set_trace()
+                    result_tensors = list(map(lambda x, y: process_tensors(x, y), probabilities, rev_probabilities))
+                    confirm_prob = torch.stack(result_tensors).detach().cpu().numpy()
+                    all_prob.append(confirm_prob)
+                combined_embeddings = torch.concat(all_embeddings).detach().cpu().numpy()
+            # import pdb; pdb.set_trace()
+            # adata.obsm["X_SpaF"] = combined_embeddings
+    
+            return combined_embeddings, all_prob
 def process_tensors(tensor1, tensor2):
     # Ensure inputs are tensors
     if not isinstance(tensor1, torch.Tensor) or not isinstance(tensor2, torch.Tensor):
@@ -233,14 +270,33 @@ class GeneTokenizer:
         self.mode = mode
         self.tissue_id = self.token_to_id[tissue]
         self.condition_id = self.token_to_id[condition]
+        self.genes = None  # Placeholder for gene names, to be set later
+        self.gene_median_dict = pickle.load(open("/scratch/project_465001820/Spatialformer/data/Xenium_median_gene_final_exp.pkl", "rb"))
+    # def non_zero_genes(self, expression_vector):
+    #     # Only select the genes with expression level
+    #     expression_vector = expression_vector[expression_vector > 0]
+    #     return expression_vector
 
     def single_cell(self, expression_vector):
         # Get indices of ranked genes for the current cell based on expression level
-        ranked_genes = np.argsort(expression_vector)[::-1]  # Get indices of ranked genes (high to low)
+        #penalty of the technical gene expression
+        # import pdb; pdb.set_trace()
+        gene_technique_mean = [self.gene_median_dict[gene] if gene in self.gene_median_dict else 1 for gene in self.genes]
+        # import pdb; pdb.set_trace()
+        expression_vector = expression_vector / np.array(gene_technique_mean)
+        #get zero index
+        zero_index = np.where(expression_vector == 0)[0]
+        #filter the zeros and rank in descending way
+        sorted_gene_idx = np.argsort(-expression_vector)
+        sorted_gene_nonzero_idx = sorted_gene_idx[~np.isin(sorted_gene_idx,zero_index)]
+        #getting the descending genes
+        sorted_genes = self.genes[sorted_gene_nonzero_idx]
+        # ranked_genes = np.argsort(expression_vector)[::-1]  # Get indices of ranked genes (high to low)
         # Generate tokens based on ranked genes
         gene_tokens = []
-        for gene_index in ranked_genes:
-            gene_name = self.genes[gene_index]  # Get the gene name using indices
+        # import pdb; pdb.set_trace()
+        for gene_name in sorted_genes:
+            # gene_name = self.genes[gene_index]  # Get the gene name using indices
             if gene_name in self.token_to_id:
                 gene_tokens.append(self.token_to_id[gene_name])
         return gene_tokens
@@ -256,14 +312,13 @@ class GeneTokenizer:
             return gene_tokens, prefix, end
         elif self.mode == "pair":
             #for first cell
+            # import pdb; pdb.set_trace()
             gene_token1 = self.single_cell(expression_vector1)
             #for second cell
             gene_token2 = self.single_cell(expression_vector2)
             return (gene_token1, gene_token2), prefix, end
 
-       
-        # import pdb; pdb.set_trace()
-        
+
 
 class GeneExpressionDataset(Dataset):
     def __init__(self, adata, tokenizer):
@@ -274,6 +329,7 @@ class GeneExpressionDataset(Dataset):
 
     def __len__(self):
         return self.expression_data.shape[0]  # Number of cells (rows)
+    
 
     def __getitem__(self, idx):
         expression_vector = self.expression_data[idx]
@@ -285,9 +341,10 @@ class GeneExpressionDataset(Dataset):
     
 
 class GeneExpressionPairDataset(Dataset):
-    def __init__(self, adata, left_cells, right_cells, tokenizer):
+    def __init__(self, adata, left_cells, right_cells, pair_label, tokenizer):
         self.tokenizer = tokenizer
         self.mode = self.tokenizer.mode
+        self.pair_label = pair_label
         all_cell_names = list(adata.obs.index)
         self.left_indices = [all_cell_names.index(left_cell) for left_cell in left_cells]
         self.right_indices = [all_cell_names.index(right_cell) for right_cell in right_cells]
@@ -311,8 +368,8 @@ class GeneExpressionPairDataset(Dataset):
         self.tokenizer.genes = self.genes  # Assign genes to tokenizer for access
         tokens, prefix, end = self.tokenizer.encode(left_expression_vector, right_expression_vector)
 
-        
-        return tokens, prefix, end
+        # import pdb; pdb.set_trace()
+        return tokens, prefix, end, self.left_indices[idx], self.right_indices[idx], self.pair_label[idx]
 
 def collate_fn(batch):
     def seg_id(token, sep_token):
@@ -355,11 +412,17 @@ def collate_fn(batch):
                 pad_size = (500 - auxi_lenght) - tokens_len
                 padded_indice = tokens + [0]*pad_size
                 attention_mask = [1]*len(tokens) + [0]*pad_size
+                token_type_id = [1]*len(padded_indice)
             padded_indices.append(padded_indice)
             attention_masks.append(attention_mask)
             token_type_ids.append(token_type_id)
+            return {"indices": torch.tensor(padded_indices), 
+            "attention_mask": torch.tensor(attention_masks).to(torch.bool),
+            "token_type_ids": torch.tensor(token_type_ids)}
     elif len(indices[0]) == 2: #if pair, there mush be pairs indices returned
-        
+        left_index = list(map(lambda x: x[3], batch))
+        right_index = list(map(lambda x: x[4], batch))
+        pair_label = list(map(lambda x: x[5], batch))
         for i, (token1,token2) in enumerate(indices):
             token1_len = len(token1)
             token2_len = len(token2)
@@ -379,26 +442,55 @@ def collate_fn(batch):
                 attention_mask = [1]*len(padded_indice)
 
             else:
-                import pdb; pdb.set_trace()
+                # import pdb; pdb.set_trace()
                 # pad_size = (500 - auxi_lenght) - tokens_len
 
                 exclude_cls = prefix_tokens[1:]
-                padded_indice = prefix_tokens + token1 + end_tokens + exclude_cls + end_tokens
-                pad_size = 500 - padded_indice
+                padded_indice = prefix_tokens + token1 + end_tokens + exclude_cls + token2 + end_tokens
+                pad_size = 500 - len(padded_indice)
                 attention_mask = [1]*len(padded_indice) + [0]*pad_size
                 padded_indice += [0] * pad_size 
-                
+                token_type_id = [1]*len(prefix_tokens + token1 + end_tokens)
+                token_type_id += [2]*(len(exclude_cls) + len(token2) + len(end_tokens))
+                token_type_id += [0]*pad_size
+
+            
             padded_indices.append(padded_indice)
             attention_masks.append(attention_mask)
             token_type_ids.append(token_type_id)
-
-    # if warn:
-    #     logger.warning("The input is longer than 500 genes, manually set to 500")
-
-    return {"indices": torch.tensor(padded_indices), 
-            "attention_mask": torch.tensor(attention_masks).to(torch.bool),
-            "token_type_ids": torch.tensor(token_type_ids)}
-
-
+        # import pdb; pdb.set_trace()
+        return {"indices": torch.tensor(padded_indices), 
+                "attention_mask": torch.tensor(attention_masks).to(torch.bool),
+                "token_type_ids": torch.tensor(token_type_ids),
+                "left_index": torch.tensor(left_index),
+                "right_index": torch.tensor(right_index),
+                "pair_label": torch.tensor(pair_label)}
 
 
+
+if __name__ == "__main__":
+    import scanpy as sc
+    import time
+    import numpy as np
+    adata_train = sc.read_h5ad("/scratch/project_465001820/Spatialformer/data/Visium_HD/GSE280318/CRC_VisiumHD_adata_train.h5ad")
+    adata_train.var["gene_name"] = adata_train.var.index
+    method = "cls"
+    tissue = "Colon"
+    condition = "Disease"
+    #download the checkpoint and put on your own machine
+    model_ckp_path = "/scratch/project_465001820/Spatialformer/output/checkpoints/step=0104000-train_total_loss=-2.3064-val_total_loss=0.0000.ckpt"
+    batch_size = 16
+    embed_adata_train = embed_data(adata_train, 
+                                tissue,
+                                condition,
+                                method,
+                                model_ckp_path, 
+                                batch_size,
+                                mode = "single",
+                                threshold = 0.7,
+                                num_workers = 8
+                                )
+    
+    #save the 
+    np.save("/scratch/project_465001820/Spatialformer/downstream/cell_types_nich_annotation/data/CRC_VisiumHD_adata_train_spatialformer.npy",embed_adata_train.obsm["X_SpaF"])
+    

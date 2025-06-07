@@ -18,7 +18,6 @@ sys.path.append(util_dir)
 sys.path.append(model_dir)
 from utils import complete_masking, categorical_2d_masking
 from model import *
-# import wandb
 import pickle
 
 MASK_TOKEN = 2
@@ -117,8 +116,6 @@ class MaskedMSE2DLoss(nn.Module):
                 spa_loss = F.binary_cross_entropy_with_logits(valid_input, valid_target.float(), reduction='mean')
                 # spa_loss = loss / mask_num
                 if torch.isnan(spa_loss) or torch.isinf(spa_loss):
-                    print("valid_input:", valid_input)
-                    print("valid_target:", valid_target)
                     raise ValueError("Loss is NaN or Inf")
             except:
                 print("Loss computation failed, assigning default loss value.")
@@ -162,7 +159,6 @@ class GraphSAGESpatialEmbedding(nn.Module):
         # Concatenate the new row to the existing tensor along axis 0 (rows)
         updated_weights = torch.cat((pretrained_weights, new_row), dim=0)
         self.emb = nn.Embedding.from_pretrained(updated_weights, freeze=freeze)
-        print("require grad:", self.emb.weight.requires_grad)
 
     def forward(self, x):
         return self.emb(x)
@@ -270,31 +266,9 @@ class Spaformer(pl.LightningModule):
         self.bpp_scale = bpp_scale
 
 
-
-        
-        
-    # def set_variable_length(self, new_batch_length):
-    #     # Reinitialize the encoder with the new batch_length
-    #     self.encoder = SpaEncoder(
-    #         dim=self.dim_model,
-    #         num_layers=self.nlayers,
-    #         groups=self.dim_model,
-    #         num_heads=self.nheads,
-    #         bpp_size=new_batch_length,
-    #         bpp=self.bpp,
-    #         bpp_scale=self.bpp_scale
-    #     )
-    #     self.encoder.to(self.device)
-
             
     def forward(self, x, adjmtx, attention_mask, token_type_ids, **kwargs):
-        # x = x.to(self.device)
-        # adjmtx = adjmtx.to(self.device)
-        # attention_mask = attention_mask.to(self.device)
-        # token_type_ids = token_type_ids.to(self.device)
-        # x -> size: batch x (context_length) x 1
-        # import pdb; pdb.set_trace()
-        # adjmtx = torch.cat(adj_left, adj_right)
+
         token_embedding = self.embeddings(x) # batch x (context_length) x dim_model
         #adding the token type embeddings
         #get the first sep site
@@ -302,16 +276,8 @@ class Spaformer(pl.LightningModule):
         token_embedding += self.token_type_embeddings(token_type_ids)
         if self.outer_config["spatial_embedding"]:
             token_embedding += self.spatialembeds(x)
-        
-        # import pdb; pdb.set_trace()
-        # print("self.encoder device:", self.encoder.device)
-        # print("token_embedding device:", token_embedding.device)
-        # print("attention_mask device:", attention_mask.device)
-        # print("adjmtx device:", adjmtx.device)
-        # import pdb; pdb.set_trace()
-        
+
         transformer_output, attn_scores = self.encoder(token_embedding, False, attention_mask) # batch x (n_tokens) x dim_model
-        # import pdb; pdb.set_trace()
         #get the last layer of the model output
         prediction = self.classifier_head(transformer_output[-1])
         #get the pair-wise gene-gene interaction matrix
@@ -397,16 +363,7 @@ class Spaformer(pl.LightningModule):
         batch["pair_label"] = batch["pair_label"].to(self.device)
         batch['attention_mask'] = batch['attention_mask'].to(self.device)
         batch["token_type_ids"] = batch["token_type_ids"].to(self.device)
-        # import pdb; pdb.set_trace()
-        # import pdb; pdb.set_trace()
-        # mem_before = torch.cuda.memory_allocated()
-        # total_memory = torch.cuda.get_device_properties(0).total_memory
-        # used_memory = torch.cuda.memory_reserved() 
-        # length = batch["indices"].shape[1]
-        # print(f"Allocated Memory before: {mem_before / 1e6:.2f} MB")  # Convert to MB
-        # print(f"Total Memory before: {total_memory / 1e6:.2f} MB")  # Convert to MB
-        # print(f"Used Memory before: {used_memory / 1e6:.2f} MB") 
-        # print(f"batch variable length: {length}")
+
         # Training code
         if batch is not None:
             try:
@@ -423,12 +380,10 @@ class Spaformer(pl.LightningModule):
                     log_sigma_mlm = getattr(self, f'log_sigma_reg1')[0]
                     self.log(f'log_sigma_reg(normalized_exp)', log_sigma_mlm, sync_dist=True, prog_bar=True, reduce_fx='mean')
                     total_loss += (torch.exp(-log_sigma_mlm) * MLM_loss + log_sigma_mlm) ##
-                    # import pdb; pdb.set_trace()
                     #for spatial minibatch, including gene and cell spatial info
                     spa_batch = mini_batch_list[-1]
                     #for spatial jobs
                     spa_predictions, adjmtx, pair_predictions, pair_label = self.predict_spa(spa_batch)
-                    # import pdb; pdb.set_trace()
                     Spa_loss = self.MDloss(spa_predictions, adjmtx)# spatial loss
                     Pair_loss = self.Pairloss(pair_predictions, pair_label) #Paired loss
                     self.log(f'train_Pair_loss', Pair_loss, sync_dist=True, prog_bar=True, reduce_fx='mean')
@@ -446,7 +401,6 @@ class Spaformer(pl.LightningModule):
                 else:
                     #no minibatch  
                     total_loss = torch.tensor(0, dtype=torch.float, device=self.device)
-                    # import pdb; pdb.set_trace()
                     #for mlm minibatch
                     batch = complete_masking(batch, self.hparams.masking_p, self.hparams.n_tokens, self.cls_token, self.mask_token, self.sep_token, self.pad_token) #for mask token prediction
                     mlm_predictions, real_indices, spa_predictions, pair_predictions, pair_label, adjmtx = self.predict_exp(batch, "normalized_exp") #different task means different targets here
@@ -455,8 +409,6 @@ class Spaformer(pl.LightningModule):
                     log_sigma_mlm = getattr(self, f'log_sigma_reg1')[0]
                     self.log(f'log_sigma_reg(normalized_exp)', log_sigma_mlm, sync_dist=True, prog_bar=True, reduce_fx='mean')
                     total_loss += (torch.exp(-log_sigma_mlm) * MLM_loss + log_sigma_mlm) ##
-                    # import pdb; pdb.set_trace()
-                    # import pdb; pdb.set_trace()
                     Spa_loss = self.MDloss(spa_predictions, adjmtx)# spatial loss
                     if self.input_mode == "pair":
                         Pair_loss = self.Pairloss(pair_predictions, pair_label) #Paired loss
@@ -466,8 +418,7 @@ class Spaformer(pl.LightningModule):
                         log_sigma_pair = getattr(self, f'log_sigma_reg2')[0]
                         self.log(f'log_sigma_reg(pair)', log_sigma_pair, sync_dist=True, prog_bar=True, reduce_fx='mean')
                         total_loss += (torch.exp(-log_sigma_pair) * Pair_loss + log_sigma_pair)
-                    # total_loss += 2 * Pair_loss
-                    # import pdb; pdb.set_trace()
+
                     self.log('train_Spa_loss', Spa_loss, sync_dist=True, prog_bar=False, reduce_fx='mean')
                     total_loss += (torch.exp(-self.log_sigma_class[0]) * Spa_loss * self.linear_schedule_for_scale() + self.log_sigma_class[0]) ##
                     self.log('log_sigma_class', self.log_sigma_class[0], sync_dist=True, prog_bar=True, reduce_fx='mean')
@@ -480,15 +431,7 @@ class Spaformer(pl.LightningModule):
 
                 self.total_tokens += attention_mask.sum()
                 self.log('total_tokens', self.total_tokens, prog_bar=True, sync_dist=True, reduce_fx='sum')
-            
-                # mem_after = torch.cuda.memory_allocated()
-                # print(f"GPU memory usage: {mem_before/1e9} GB -> {mem_after/1e9} GB") 
-                # mem_after = torch.cuda.memory_allocated()
-                # total_memory = torch.cuda.get_device_properties(0).total_memory
-                # used_memory = torch.cuda.memory_reserved() 
-                # print(f"Allocated Memory after: {mem_after / 1e6:.2f} MB")  # Convert to MB
-                # print(f"Total Memory after: {total_memory / 1e6:.2f} MB")  # Convert to MB
-                # print(f"Used Memory after: {used_memory / 1e6:.2f} MB") 
+
                 self.last_train_loss = total_loss.item()  
                 
                 # Check for NaN loss
@@ -496,15 +439,12 @@ class Spaformer(pl.LightningModule):
                     encoder_state_dict = self.encoder.state_dict()
                     encoder_state_dict_cpu = {k: v.cpu() for k, v in encoder_state_dict.items()}
                     torch.save(encoder_state_dict, "/scratch/project_465001027/Spatialformer/data/encoder_state_dict.pth")
-                # if torch.isnan(total_loss).any():
                 #     #save everything
                     pickle.dump(to_cpu(batch), open("/scratch/project_465001027/Spatialformer/data/nanbatch.pkl", "wb"))
-                    # pickle.dump(to_cpu(mini_batch_list), open("/scratch/project_465001027/Spatialformer/data/minibatchlist.pkl", "wb"))
                     pickle.dump(to_cpu(mlm_predictions), open("/scratch/project_465001027/Spatialformer/data/mlm_predictions.pkl", "wb"))
                     pickle.dump(to_cpu(real_indices), open("/scratch/project_465001027/Spatialformer/data/real_indices.pkl", "wb"))
                     pickle.dump(to_cpu(attention_mask), open("/scratch/project_465001027/Spatialformer/data/attention_mask.pkl", "wb"))
                     pickle.dump(to_cpu(MLM_loss), open("/scratch/project_465001027/Spatialformer/data/MLM_loss.pkl", "wb"))
-                    # pickle.dump(to_cpu(log_sigma), open("/scratch/project_465001027/Spatialformer/data/log_sigma.pkl", "wb"))
                     pickle.dump(to_cpu(spa_predictions), open("/scratch/project_465001027/Spatialformer/data/spa_predictions.pkl", "wb"))
                     pickle.dump(to_cpu(adjmtx), open("/scratch/project_465001027/Spatialformer/data/adjmtx.pkl", "wb"))
                     pickle.dump(to_cpu(Spa_loss), open("/scratch/project_465001027/Spatialformer/data/Spa_loss.pkl", "wb"))
@@ -519,12 +459,6 @@ class Spaformer(pl.LightningModule):
         else:
 
             return
-
-
-
-       
-
-             
 
 
     def linear_schedule_for_scale(self, num_stagnant_steps=100):
@@ -546,9 +480,7 @@ class Spaformer(pl.LightningModule):
         div = self.outer_config["n_tasks"]
         batch_size = batch["indices"].shape[0]
         
-        # assert batch_size%div == 0, f"For minibatch implementation, the batch size should be set to {div}*n"
         mini_size = int(batch_size/div)
-        # print(f"mini batch size = {mini_size}")
         mini_batch_list = []
         #only apply for exp batch
         #for masked token prediction task
@@ -561,9 +493,6 @@ class Spaformer(pl.LightningModule):
             mini_batch = 1
             pc_batch = {k: v[int(mini_batch*mini_size):int((mini_batch+1)*mini_size)] for k, v in batch.items()}
             mini_batch_list.append(pc_batch)
-        #for gene co-occurrence prediction        
-        # spa_batch = {k: v[-mini_size:] for k, v in batch.items()}
-        # mini_batch_list.append(spa_batch)
         
         return mini_batch_list
     
@@ -578,19 +507,15 @@ class Spaformer(pl.LightningModule):
                 real_indices = batch['indices']
                 mask = batch['mask']
                 no_mask = torch.all(torch.where(real_indices != PAD_TOKEN, mask, 1) == 1)
-        # import pdb; pdb.set_trace()
         masked_indices = batch['masked_indices']
         attention_mask = batch['attention_mask']
         token_type_ids = batch["token_type_ids"]      
         adjmtx = batch['adjmtx']
-        # batch = pickle.load(open("/scratch/project_465001027/Spatialformer/data/nanbatch.pkl","rb"))
 
-        # import pdb; pdb.set_trace()
         predictions = self.forward(masked_indices, adjmtx, attention_mask, token_type_ids)
         mlm_predictions = predictions['mlm_prediction']
         real_indices = torch.where(mask==MASK_TOKEN, real_indices, torch.tensor(-100, dtype=torch.long)).type(torch.int64)
         mlm_predictions = mlm_predictions.view(-1, self.hparams.n_tokens+self.hparams.n_atokens)
-        # import pdb; pdb.set_trace()
         real_indices = real_indices.view(-1)
 
         if self.outer_config["mini_batch"] == False:
@@ -708,11 +633,6 @@ class Spaformer(pl.LightningModule):
             
             return
 
-
-
-          
-       
-  
             
     
     def get_embeddings(self, batch, layers: List[int] = [11], pair_prediction=False, co_prediction=False):
@@ -727,7 +647,6 @@ class Spaformer(pl.LightningModule):
         
         
         indices = batch["indices"].to(self.device)
-        # adjmtx = batch["adjmtx"].to(self.device)
         attention_mask = batch["attention_mask"].to(self.device)
         token_type_ids = batch["token_type_ids"].to(self.device)
         predictions = self.forward(indices, False, attention_mask, token_type_ids)
@@ -741,7 +660,6 @@ class Spaformer(pl.LightningModule):
                 hidden_repr = [predictions["transformer_output"][i] for i in layers]
                 spa_prediction = predictions["spa_prediction"]#adj matrix
                 probabilities = torch.nn.functional.softmax(spa_prediction, dim=0)
-                # import pdb; pdb.set_trace()
                 return hidden_repr, probabilities
 
         else:
@@ -753,7 +671,6 @@ class Spaformer(pl.LightningModule):
             return hidden_repr, probabilities
     def get_pair(self, batch):
         indices = batch["indices"].to(self.device)
-        # adjmtx = batch["adjmtx"].to(self.device)
         attention_mask = batch["attention_mask"].to(self.device)
         token_type_ids = batch["token_type_ids"].to(self.device)
         predictions = self.forward(indices, False, attention_mask, token_type_ids)
@@ -767,7 +684,6 @@ class Spaformer(pl.LightningModule):
         attention_mask = batch["attention_mask"].to(self.device)
         token_type_ids = batch["token_type_ids"].to(self.device)
         new_batch_length = indices.shape[1]
-        # self.set_variable_length(new_batch_length)
         predictions = self.forward(indices, adjmtx, attention_mask, token_type_ids)
         attn_score = [predictions["attention_score"][i] for i in layers]
                   
@@ -791,22 +707,6 @@ class Spaformer(pl.LightningModule):
             if isinstance(m, nn.Linear):
                 init.xavier_normal_(m.weight)
                 init.zeros_(m.bias)
-                
- 
-class PositionalEncoding(nn.Module):
-    def __init__(self, d_model, max_seq_len):
-        super(PositionalEncoding, self).__init__()
-        # import pdb; pdb.set_trace()
-        encoding = torch.zeros(max_seq_len, d_model)
-        position = torch.arange(0, max_seq_len, dtype=torch.float).unsqueeze(1)
-        div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model))
-        encoding[:, 0::2] = torch.sin(position * div_term)
-        encoding[:, 1::2] = torch.cos(position * div_term)
-        encoding = encoding.unsqueeze(0)
-        self.register_buffer('encoding', encoding, persistent=False)
-
-    def forward(self, x):
-        return x + self.encoding[:, :x.size(1)]
 
 
 class CosineWarmupScheduler(optim.lr_scheduler._LRScheduler):

@@ -1,7 +1,7 @@
 
 from data_loader import *
 import json
-from datasets import load_from_disk, concatenate_datasets
+from datasets import load_from_disk, concatenate_datasets, load_dataset
 from train import manual_train_fm
 import sys
 from sklearn.model_selection import train_test_split
@@ -24,11 +24,11 @@ os.environ['TORCH_NCCL_ASYNC_ERROR_HANDLING'] = '1'
 os.environ['NCCL_DEBUG'] = 'WARN'
 os.environ['NCCL_DEBUG_SUBSYS'] = 'ALL'
 # os.environ['CUDA_VISIBLE_DEVICES'] = '0,1'
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+# device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 def data_prepare(sample_name, kfold, num_workers, batch_size, radius=30, test_size = 2000, zero_shot_cell_size = 2000, split_mode = "leave_cell_out"):
-
-    combined_dataset = load_from_disk("/scratch/project_465001027/Spatialformer/cache/xenium_pandavid_dataset4")  
-    index_path = "/scratch/project_465001027/Spatialformer/data/sample_cell_index.pkl"
+    combined_dataset = load_dataset("TerminatorJ/xenium_pandavid_dataset4", cache_dir = "/scratch/project_465001820/Spatialformer/cache/", num_proc = 8) #loading the combined dataset
+    # combined_dataset = load_from_disk("/scratch/project_465001820/Spatialformer/cache/xenium_pandavid_dataset4")  
+    index_path = "/scratch/project_465001820/Spatialformer/data/sample_cell_index.pkl"
     sample_cell_index = get_index(combined_dataset, save_file = index_path)
 
     combined_dataset_all = concatenate_datasets([combined_dataset["train"], combined_dataset["test"], combined_dataset["validation"]])
@@ -62,10 +62,10 @@ def data_prepare(sample_name, kfold, num_workers, batch_size, radius=30, test_si
             train_labels, test_labels = train_test_labels[fold][0], train_test_labels[fold][1]
 
             #saving the 5 folds train-test pairs and labels
-            pickle.dump(train_pairs, open(f"/scratch/project_465001027/Spatialformer/downstream/cell_cell_communication/data/train_pairs_fold{fold}.pkl", "wb"))
-            pickle.dump(test_pairs, open(f"/scratch/project_465001027/Spatialformer/downstream/cell_cell_communication/data/test_pairs_fold{fold}.pkl", "wb"))
-            pickle.dump(train_labels, open(f"/scratch/project_465001027/Spatialformer/downstream/cell_cell_communication/data/train_labels_fold{fold}.pkl", "wb"))
-            pickle.dump(test_labels, open(f"/scratch/project_465001027/Spatialformer/downstream/cell_cell_communication/data/test_labels_fold{fold}.pkl", "wb"))
+            pickle.dump(train_pairs, open(f"/scratch/project_465001820/Spatialformer/downstream/cell_cell_communication/data/train_pairs_fold{fold}.pkl", "wb"))
+            pickle.dump(test_pairs, open(f"/scratch/project_465001820/Spatialformer/downstream/cell_cell_communication/data/test_pairs_fold{fold}.pkl", "wb"))
+            pickle.dump(train_labels, open(f"/scratch/project_465001820/Spatialformer/downstream/cell_cell_communication/data/train_labels_fold{fold}.pkl", "wb"))
+            pickle.dump(test_labels, open(f"/scratch/project_465001820/Spatialformer/downstream/cell_cell_communication/data/test_labels_fold{fold}.pkl", "wb"))
 
 
             # import pdb; pdb.set_trace()
@@ -125,10 +125,13 @@ def data_prepare(sample_name, kfold, num_workers, batch_size, radius=30, test_si
         # import pdb; pdb.set_trace()
         selected_pairs, selected_labels = split_dataset(all_pairs, all_labels, n_splits = kfold, test_size = None, zero_shot_cell_size = zero_shot_cell_size)
         #save the zero-shot benchmarking dataset
-        
-        pickle.dump(selected_pairs, open(f"/scratch/project_465001027/Spatialformer/downstream/cell_cell_communication/data/selected_pairs_radius_{radius}.pkl", "wb"))
-        pickle.dump(selected_labels, open(f"/scratch/project_465001027/Spatialformer/downstream/cell_cell_communication/data/selected_labels_{radius}.pkl", "wb"))
+        # import pdb; pdb.set_trace()
+        pickle.dump(selected_pairs, open(f"/scratch/project_465001820/Spatialformer/downstream/cell_cell_communication/data/selected_pairs_radius_{radius}.pkl", "wb"))
+        pickle.dump(selected_labels, open(f"/scratch/project_465001820/Spatialformer/downstream/cell_cell_communication/data/selected_labels_{radius}.pkl", "wb"))
         print("selected_pairs shape:", selected_pairs.shape)
+        selected_pairs = np.array([[33921, 33929]])
+        import pdb; pdb.set_trace()
+        selected_labels = np.array([1])
         test_dataloader = create_dataloader_fast(sample_dataset, 
                                                     selected_pairs, 
                                                     selected_labels,
@@ -143,18 +146,22 @@ def data_prepare(sample_name, kfold, num_workers, batch_size, radius=30, test_si
                                                     sep_token = 1949, 
                                                     cls_token = 1,
                                                     )
+        
+        # import pdb; pdb.set_trace()
+
+        
         # import pdb; pdb.set_trace()
         # import pdb; pdb.set_trace()
         return test_dataloader
 
 class FineTune:
-    def __init__(self, config, ckp_path, sample_name, radius, fine_tune_mode, wandb):
+    def __init__(self, config, ckp_path, sample_name, radius, fine_tune_mode, wandb, strategy):
         self.config = config
         self.sample_name = sample_name
         self.fold = None
         self.wandb = wandb
         self.radius = radius
-        
+        self.strategy = strategy
         self.total_steps = config["total_step"]
         self.fine_tune_mode = fine_tune_mode
         # import pdb; pdb.set_trace()
@@ -163,6 +170,7 @@ class FineTune:
         self.probe_model = FTNetwork(self.base_model, fine_tune_mode = fine_tune_mode, outer_config = config) #here is the proximity or not
         
         self.gpus = torch.cuda.device_count()
+        # self.gpus = 1
         # import pdb; pdb.set_trace()
         self.num_nodes = int(os.environ.get('SLURM_JOB_NUM_NODES', 1))
         print(f"The number of GPUS: {self.gpus}")
@@ -206,7 +214,7 @@ class FineTune:
             logger=self.logger,
             precision='bf16',
             # precision=16,
-            strategy = "ddp",
+            strategy = self.strategy,
             num_nodes = self.num_nodes,
             gradient_clip_val = 1,
             accumulate_grad_batches = self.config['accumulate_grad_batches']
@@ -248,7 +256,7 @@ if __name__ == "__main__":
                         help='The radius between query and key cells')
     
     args = parser.parse_args()
-    sample_name = "THD0008"
+    sample_name = "VUILD110" #"THD0008"
     
     fine_tune_mode = args.fine_tune_mode #optional "fine_tune" /"probe"/ “zero_shot”/
     num_workers = 8
@@ -259,11 +267,11 @@ if __name__ == "__main__":
     # radius_list = [30] #this is only for cell type JSD evaluation
     all_results = {}
     # import pdb; pdb.set_trace()
-    # model_ckp_path = "/scratch/project_465001027/Spatialformer/output/checkpoints/step=0100000-train_total_loss=-2.2727-val_total_loss=0.0000.ckpt"#single slides
-    # model_ckp_path = "/scratch/project_465001027/Spatialformer/output/checkpoints/step=0044000-train_total_loss=-1.3226-val_total_loss=0.2488.ckpt"#all lung slides
-    model_ckp_path = "/scratch/project_465001027/Spatialformer/output/checkpoints/step=0096000-train_total_loss=-2.9351-val_total_loss=0.0000.ckpt"#all 61 slides
+    # model_ckp_path = "/scratch/project_465001820/Spatialformer/output/checkpoints/step=0100000-train_total_loss=-2.2727-val_total_loss=0.0000.ckpt"#single slides
+    # model_ckp_path = "/scratch/project_465001820/Spatialformer/output/checkpoints/step=0044000-train_total_loss=-1.3226-val_total_loss=0.2488.ckpt"#all lung slides
+    model_ckp_path = "/scratch/project_465001820/Spatialformer/output/checkpoints/step=0096000-train_total_loss=-2.9351-val_total_loss=0.0000.ckpt"#all 61 slides
     #loading the trained spatialformer as the base model
-    config_path = "/scratch/project_465001027/Spatialformer/config/_config_fine_tune_probe.json"
+    config_path = "/scratch/project_465001820/Spatialformer/config/_config_fine_tune_probe.json"
     with open(config_path, 'r') as json_file:
         config = json.load(json_file) 
     total_steps = config["total_step"]
@@ -325,7 +333,7 @@ if __name__ == "__main__":
             kfold = 0
             test_dataloader = data_prepare(sample_name, kfold, num_workers, batch_size, radius=r, test_size = None, zero_shot_cell_size = zero_shot_cell_size, split_mode = "random")
             # import pdb; pdb.set_trace()
-            Finetune = FineTune(config, model_ckp_path, sample_name, r, fine_tune_mode, wandb = True)
+            Finetune = FineTune(config, model_ckp_path, sample_name, r, fine_tune_mode, strategy = "ddp" , wandb = True)
             # test_dataloader = data_prepare(sample_name, kfold, num_workers, batch_size, radius=r, test_size = None, zero_shot_cell_size = zero_shot_cell_size, split_mode = "random")
             probe_model = Finetune.probe_model
             results = Finetune.test(probe_model, test_dataloader)
@@ -354,8 +362,8 @@ if __name__ == "__main__":
         print(mean_values)
 
         # Save to CSV file
-        mean_values.to_csv(f'/scratch/project_465001027/Spatialformer/output/metrics/{sample_name}_{fine_tune_mode}_{total_steps}_mean_values_per_radius.csv', index=True)  # Include index if you want to keep fold numbers
-        df_results.to_csv(f'/scratch/project_465001027/Spatialformer/output/metrics/{sample_name}_{fine_tune_mode}_{total_steps}_all_values.csv', index=True)
+        mean_values.to_csv(f'/scratch/project_465001820/Spatialformer/output/metrics/{sample_name}_{fine_tune_mode}_{total_steps}_mean_values_per_radius.csv', index=True)  # Include index if you want to keep fold numbers
+        df_results.to_csv(f'/scratch/project_465001820/Spatialformer/output/metrics/{sample_name}_{fine_tune_mode}_{total_steps}_all_values.csv', index=True)
 
     else:
         #getting all results
@@ -368,6 +376,6 @@ if __name__ == "__main__":
         print(df_results)
         # Save to CSV file
         formatted_time = time.strftime('%Y%m%d_%H%M%S')
-        df_results.to_csv(f'/scratch/project_465001027/Spatialformer/output/metrics/{sample_name}_{fine_tune_mode}_all_values_{formatted_time}.csv', index=True)
+        df_results.to_csv(f'/scratch/project_465001820/Spatialformer/output/metrics/{sample_name}_{fine_tune_mode}_all_values_{formatted_time}.csv', index=True)
 
 

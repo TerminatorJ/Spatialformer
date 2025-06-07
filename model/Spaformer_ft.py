@@ -211,18 +211,19 @@ class FTNetwork(pl.LightningModule):
         # loss = F.cross_entropy(outputs, labels)
         # Update metrics
         # print("end test step")
-        # import pdb; pdb.set_trace()
+
         return preds, positive_probs, labels, left_indexs, right_indexs
     def test_epoch_end(self, outputs):
-        
+
         #we support multi-gpus for inferencing
         rank = torch.distributed.get_rank() 
         results = torch.zeros((2, 2)).to(self.device)
         preds, labels, probs, left_indexs, right_indexs = [], [], [], [], []
         # for output in outputs:
-        # print("outputs", outputs)
-        # print("before reduce:", results)
+        print("outputs", outputs)
+        print("before reduce:", results)
         for output in outputs:
+            print("output:", output)
             for pred, positive_prob, label, left_index, right_index in zip(*output):
 
                 # for pred, label in zip(output):
@@ -295,14 +296,16 @@ class FTNetwork(pl.LightningModule):
             print("after aggregation:", all_preds)
             all_left_indexs = torch.cat(gathered_left_indexs)
             all_right_indexs = torch.cat(gathered_right_indexs)
+            
             #save the predicted results and the index
             import pickle
             import time
+            from sklearn.metrics import roc_auc_score
             formatted_time = time.strftime('%Y%m%d_%H%M%S')
-            pickle.dump(all_preds.cpu().numpy(), open(f"/scratch/project_465001027/Spatialformer/data/all_preds_{formatted_time}.pkl", "wb"))
-            pickle.dump(all_labels.cpu().numpy(), open(f"/scratch/project_465001027/Spatialformer/data/all_labels_{formatted_time}.pkl", "wb"))
-            pickle.dump(all_left_indexs.cpu().numpy(), open(f"/scratch/project_465001027/Spatialformer/data/all_left_indexs_{formatted_time}.pkl", "wb"))
-            pickle.dump(all_right_indexs.cpu().numpy(), open(f"/scratch/project_465001027/Spatialformer/data/all_right_indexs_{formatted_time}.pkl", "wb"))
+            pickle.dump(all_preds.cpu().numpy(), open(f"/scratch/project_465001820/Spatialformer/downstream/cell_cell_communication/data/all_preds_{formatted_time}.pkl", "wb"))
+            pickle.dump(all_labels.cpu().numpy(), open(f"/scratch/project_465001820/Spatialformer/downstream/cell_cell_communication/data/all_labels_{formatted_time}.pkl", "wb"))
+            pickle.dump(all_left_indexs.cpu().numpy(), open(f"/scratch/project_465001820/Spatialformer/downstream/cell_cell_communication/data/all_left_indexs_{formatted_time}.pkl", "wb"))
+            pickle.dump(all_right_indexs.cpu().numpy(), open(f"/scratch/project_465001820/Spatialformer/downstream/cell_cell_communication/data/all_right_indexs_{formatted_time}.pkl", "wb"))
 
             # Extract confusion matrix components
             TP = results[1, 1]
@@ -315,13 +318,14 @@ class FTNetwork(pl.LightningModule):
             specificity = TN / (TN + FP) if (TN + FP) > 0 else torch.tensor(0.)
             precision = TP / (TP + FP) if (TP + FP) > 0 else torch.tensor(0.)
             f1 = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else torch.tensor(0.)
-        
+            auc_score = roc_auc_score(all_labels.cpu().numpy(), all_preds.cpu().numpy())
             # Log accuracy, recall, specificity, F1
             self.log("test_accuracy", acc, rank_zero_only=True, on_epoch=True)
             self.log("test_recall", recall, rank_zero_only=True, on_epoch=True)
             self.log("test_precision", precision, rank_zero_only=True, on_epoch=True)
             self.log("test_specificity", specificity, rank_zero_only=True, on_epoch=True)
             self.log("test_f1", f1, rank_zero_only=True, on_epoch=True)
+            self.log("test_auc", auc_score, rank_zero_only=True, on_epoch=True)
             # print(acc, recall, specificity, f1, precision)
             # Optionally set results for further usage
             self.trainer.results = results

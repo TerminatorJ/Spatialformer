@@ -32,8 +32,7 @@ current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
 
 path = Path(os.getcwd())
 parent_dir = path.parent
-# import pdb; pdb.set_trace()
-# data_dir = os.path.join(parent_dir, "david_data")
+
 
 model_path = os.path.join(parent_dir, "output", "GraphSAGE_model")
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -59,7 +58,6 @@ def load_and_preprocess_data(filepath):
         sampled_cell_ids = pd.Series(unique_cell_ids).sample(n=20000, random_state=42)
     else:
         sampled_cell_ids = pd.Series(unique_cell_ids)
-    # import pdb; pdb.set_trace()
     # Select only the rows where `cell_id` is in the sampled set
     sampled_dataset = dataset[dataset['cell_id'].isin(sampled_cell_ids)]
     # dataset = dataset.iloc[:10000]
@@ -107,16 +105,13 @@ def build_graph_for_sample(data, threshold=3.0, batch_size=100, sample_id = None
         G.add_edges_from(edges_to_add)
             
     # Batch add edges
-    # import pdb; pdb.set_trace()
-    # import pdb; pdb.set_trace()
+
     edge_index = torch.tensor(list(G.edges)).t().contiguous()   
     x = torch.tensor(one_hot_labels, dtype=torch.float)
-    # import pdb; pdb.set_trace()
     num_nodes = x.size(0)
 
     root_nodes = torch.tensor(random.sample(range(num_nodes), min(5000, num_nodes)))
 
-    # import pdb; pdb.set_trace()
     print("creating the subgraph...")
     subgraph_nodes, subgraph_edge_index, _, _ = k_hop_subgraph(
         node_idx=root_nodes,

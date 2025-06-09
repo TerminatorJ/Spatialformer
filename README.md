@@ -239,7 +239,9 @@ Pretrain the doublet input model
 python ./script/train.py --config /scratch/project_465001820/Spatialformer/config/_config_train_large_pair.json
 ```
 
+### Reproducibility of the work
 
+All the codes for reproduce the results of the manuscript is presented in the ./downstream directory.
 
 
 ### Star Trend

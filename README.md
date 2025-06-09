@@ -241,7 +241,7 @@ python ./script/train.py --config /scratch/project_465001820/Spatialformer/confi
 
 ### Reproducibility of the work
 
-All the codes for reproduce the results of the manuscript is presented in the ./downstream directory.
+All the codes for reproducing the results of the manuscript were presented in the ./downstream directory.
 
 
 ### Star Trend

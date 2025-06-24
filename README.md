@@ -15,15 +15,18 @@ Spatial transcriptomics quantifies gene expression within its spatial context, s
 
 ## Tutorials
 
-For the instructions of SpatialFormer, please refer to our jupyter notebook [tutorials](downstream/) on:
+For the instructions of SpatialFormer, please refer to our jupyter notebook (some in the .py files) [tutorials](downstream/) on:
 
 The zero-shot tutorials 
 - [Dataset Integration](downstream/zero-shot_batch_correction/zero_shot_batch_integration.ipynb)
-- [Gene-gene colocalization1](downstream/cell_cell_communication/1.Tutorial_attention_analysis.ipynb)
-- [Gene-gene colocalization2](downstream/cell_cell_communication/2.Tutorial_perturbation_analysis.ipynb)
-- [Gene-gene colocalization3](downstream/cell_cell_communication/3.Tutorial_CCC_analysis_VUILD96MF.ipynb)
+- [Gene-gene colocalization perturbation discovery](downstream/cell_cell_communication/perturbation_analysis.py)
+- [Gene-gene colocalization attention analysis](downstream/cell_cell_communication/1.Tutorial_attention_analysis.ipynb)
+- [Gene-gene colocalization perturbation analysis 1](downstream/cell_cell_communication/2.Tutorial_perturbation_analysis.ipynb)
+- [Gene-gene colocalization perturbation analysis 2](downstream/cell_cell_communication/3.Tutorial_CCC_analysis_VUILD96MF.ipynb)
+- [Gene-gene colocalization perturbation analysis 3](downstream/cell_cell_communication/4.Tutorial_CCC_analysis_breast.ipynb)
 - [Cell-cell colocalization analysis](downstream/cell_cell_communication/cell_cell_communication_zero_shot_cross_slide.ipynb)
-- [Cell-cell colocalization prediction](downstream/cell_cell_communication/cell_cell_communication_zero_shot_breast.py)
+- [Cell-cell colocalization prediction](downstream/cell_cell_communication/cell_cell_communication_zero_shot_multi_platform.py)
+
 
 The fine-tuning tutorials
 - [Cell type/niches annotation](downstream/cell_types_nich_annotation/Tutorial_cell_type_annotation.ipynb)
@@ -242,6 +245,7 @@ python ./script/train.py --config /scratch/project_465001820/Spatialformer/confi
 ### Reproducibility of the work
 
 All the codes for reproducing the results of the manuscript were presented in the ./downstream directory.
+For reproducing the MERFISH and Xenium colocalization prediction, [colocalization prediction](downstream/zero-shot_batch_correction/cell_cell_communication_zero_shot_multi_platform.py)
 
 
 ### Star Trend

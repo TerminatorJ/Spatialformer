@@ -13,7 +13,7 @@ from pytorch_lightning import LightningDataModule
 from sklearn.model_selection import train_test_split
 
 
-def save_pair_dataset(dataset, sample_cell_index, radius, num_workers, chunk, res):
+def save_pair_dataset(dataset, sample_cell_index, radius, num_workers, chunk, res, define_name):
     '''
     dataset: huggingface dataset
     index_path: the index build for huggingface dataset for fast retrive
@@ -30,8 +30,8 @@ def save_pair_dataset(dataset, sample_cell_index, radius, num_workers, chunk, re
     pair_files = [file for file in target_dirs if "pair" in file]
     file_left = [file for file in list(sample_cell_index.keys()) if "xenium_" + file + "_pair" not in pair_files]
     # import pdb; pdb.set_trace()
-    # for sample_name in tqdm(list(sample_cell_index.keys())[(chunk-1)*bs + res:min(chunk*bs, num_sample)]):
-    for sample_name in ['Xenium_V1_hColon_Non_diseased_Base_FFPE_outs', 'Xenium_V1_hSkin_nondiseased_section_2_FFPE_outs', 'Xenium_V1_hTonsil_reactive_follicular_hyperplasia_section_FFPE_outs'][2:3]:
+    for sample_name in tqdm(list(sample_cell_index.keys())[(chunk-1)*bs + res:min(chunk*bs, num_sample)]):
+    # for sample_name in ['Xenium_V1_hColon_Non_diseased_Base_FFPE_outs', 'Xenium_V1_hSkin_nondiseased_section_2_FFPE_outs', 'Xenium_V1_hTonsil_reactive_follicular_hyperplasia_section_FFPE_outs'][2:3]:
         save_path = f"xenium_{sample_name}_pair"
         # import pdb; pdb.set_trace()
         if save_path not in target_dirs:

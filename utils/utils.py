@@ -4,7 +4,8 @@ utils.py for focus
 import os
 import pandas as pd 
 import numpy as np
-
+from scipy import stats
+from statsmodels.stats.multitest import multipletests
 from communities.algorithms import louvain_method
 import networkx as nx
 import torch
@@ -494,9 +495,7 @@ class DynamicHuggingFaceDatasetEval(IterableDataset):
         self.kfold = kfold
         self.cur_fold = cur_fold
         self.split = split
-    def load_dataset(self, path):
-        dataset = load_from_disk(path)
-        return dataset
+        self.dataset = load_from_disk(datapath)
 
     def kfold_split(self, dataset):
         sample_num = len(dataset)  # Use len() for datasets
@@ -510,26 +509,30 @@ class DynamicHuggingFaceDatasetEval(IterableDataset):
                 return train_dataset, test_dataset
 
         raise ValueError("Current fold index is out of bounds.")
+    def __len__(self):
+
+        return len(self.dataset)
+
+    
     def __iter__(self):
 
         try:
-            dataset = self.load_dataset(self.datapath)
             # Get the total number
-            total_number = len(dataset)
+            total_number = len(self.dataset)
 
             # Shuffle the cells
             np.random.seed(42)  # For reproducibility
             shuffled_indices = np.random.permutation(total_number)
             if self.kfold:
-                train_dataset, test_dataset = self.kfold_split(dataset)
+                train_dataset, test_dataset = self.kfold_split(self.dataset)
                 if self.split == "train":
                     yield from train_dataset
                 elif self.split == "test":
                     yield from test_dataset
             else:
                 #WARNING: if you use the to_iterable_dataset method, you won't get the whole datasets as the right order.
-                dataset = dataset.select(shuffled_indices)
-                iter_dataset = dataset.to_iterable_dataset(num_shards=64)
+                dataset_shuffle = self.dataset.select(shuffled_indices)
+                iter_dataset = dataset_shuffle.to_iterable_dataset(num_shards=64)
                 yield from iter_dataset 
 
         except FileNotFoundError:
@@ -1208,18 +1211,31 @@ def split_data(adata, train_proportion=0.7, test_proportion=0.2, validation_prop
 
     return adata
 
-def binary_to_coo_matrix(binary_matrix : np.array):
+# def binary_to_coo_matrix(binary_matrix : np.array):
 
+#     # Find the indices where the elements are non-zero
+#     row, col = np.nonzero(binary_matrix)
+
+#     # Gather the non-zero elements. Since it's a binary matrix, these will all be 1s.
+#     data = binary_matrix[row, col]
+
+#     # Create the COO format sparse matrix
+#     sparse_matrix = coo_matrix((data, (row, col)), shape=binary_matrix.shape)
+
+#     return sparse_matrix
+def binary_to_coo_matrix(example):
+    adj_mtx = np.array(example["Gene_Gene_Matrix"])
+    # import pdb; pdb.set_trace()
     # Find the indices where the elements are non-zero
-    row, col = np.nonzero(binary_matrix)
+    row, col = np.nonzero(adj_mtx)
 
     # Gather the non-zero elements. Since it's a binary matrix, these will all be 1s.
-    data = binary_matrix[row, col]
-
+    data = adj_mtx[row, col]
+    shape = adj_mtx.shape
     # Create the COO format sparse matrix
-    sparse_matrix = coo_matrix((data, (row, col)), shape=binary_matrix.shape)
+    # sparse_matrix = coo_matrix((data, (row, col)), shape=binary_matrix.shape)
 
-    return sparse_matrix
+    return {"row": row, "col": col, "data": data, "shape": shape}
 
 def coo_to_binary_matrix(group_shape, data, row, col):
     # Create an empty binary matrix with the same shape as the sparse matrix
@@ -1482,5 +1498,133 @@ def categorical_2d_masking(batch, p = 0.5):
 
 
 
+def stat_test(all_infos, vocab):
+    pair_diff = {}
+    pair_rank = {}
+    pair_cellpair = {}
+    for cell_pair in all_infos.keys():
+        token_pairs = all_infos[cell_pair]["combination_tokens"]
+        diffs = all_infos[cell_pair]["diff"]
+        rank = all_infos[cell_pair]["combination_indexs"]
+        for i, (token_pair, diff) in enumerate(zip(token_pairs, diffs)):
+            pairrank = rank[i]
+            rev_pair = tuple([token_pair[1], token_pair[0]])
+            if rev_pair in pair_diff.keys():
+                pair_diff.setdefault(rev_pair,[]).append(diff)
+                pair_rank.setdefault(rev_pair,[]).append(pairrank)
+                pair_cellpair.setdefault(rev_pair,[]).append(cell_pair)
+            else:
+                pair_diff.setdefault(tuple(token_pair),[]).append(diff)
+                pair_rank.setdefault(tuple(token_pair),[]).append(pairrank)
+                pair_cellpair.setdefault(tuple(token_pair),[]).append(cell_pair)
+    #calculating the mean for each pair
+    pairs = []
+    gene1 = []
+    gene2 = []
+    top20_cp = []
+    top20_diff = []
+    mean_diffs = []
+    mean_ranks = []
+    support_num = []
+    t_stats = []
+    p_values = []
+    threshold = 0
+    for pair,diffs in tqdm(pair_diff.items()):
+        
+        ranks = pair_rank[pair]
+        mean_diff = np.mean(diffs)
+        # Get the indices of values in the top 20% of diffs
+        percentile_20 = np.percentile(diffs, 20)
+        
+        # Find indices of all values that are <= the 20th percentile
+        top_20_percent_indices = np.where(diffs <= percentile_20)[0]
+        
+        # Now you have both indices and values
+        top_20_percent_values = np.array(diffs)[top_20_percent_indices]
+        #sort the values
+        sorted_indices = np.argsort(top_20_percent_values)
+        sorted_diff = top_20_percent_values[sorted_indices]
+        cell_pairs = np.array(pair_cellpair[pair])[top_20_percent_indices]
+        sorted_cellpairs = cell_pairs[sorted_indices]
+        # import pdb; pdb.set_trace()
+        top20_cp.append(sorted_cellpairs)
+        top20_diff.append(sorted_diff)
+        
+        t_stat, p_value = stats.ttest_1samp(diffs, popmean=threshold, alternative='less')
+        mean_rank = np.mean(ranks)
+        #transfer the pair to gene symbol
+        p_values.append(p_value)
+        t_stats.append(t_stat)
+        support_num.append(len(diffs))
+        gene_pair = (vocab[pair[0]], vocab[pair[1]])
+        gene1.append(vocab[pair[0]])
+        gene2.append(vocab[pair[1]])
+        pairs.append(gene_pair)
+        mean_diffs.append(mean_diff)
+        mean_ranks.append(mean_rank)
 
+    
+
+    
+    pair_df = pd.DataFrame({"gene_pair": pairs, 
+                            "gene1": gene1,
+                            "gene2": gene2,
+                            "Deduction": mean_diffs,
+                            "rank_mean": mean_ranks, 
+                            "stat": t_stats,
+                            "P_value": p_values,
+                            "support_num": support_num,
+                           "top20_cellpairs": top20_cp,
+                           "top20_diff": top20_diff})
+    return pair_df
+def ovlp_database(pair_df, database_path1, database_path2):
+    '''
+    Finding the overlapping between the pair-wise genes and the ligand-receptor gene pairs
+    '''
+    #loading the table of the database from cellchat
+    database1 = pd.read_csv(database_path1)
+    database2 = pd.read_csv(database_path2)
+    # Create a function to check for overlaps
+    def check_overlap_for_cellchat(interaction):
+        for i,top_pair in enumerate(pair_df["gene_pair"]):
+            if (top_pair[0] in interaction.split("_")) and (top_pair[1] in interaction.split("_")):
+                if top_pair[0] != top_pair[1]: #filter
+                    return int(i)  # Return the top pair if found
+        return None  # Return None if no pairs match
+    def check_overlap_for_cellnest(row):
+        lr_pair = [row["Ligand"], row["Receptor"]]
+        for i,top_pair in enumerate(pair_df["gene_pair"]):
+            if (top_pair[0] in lr_pair) and (top_pair[1] in lr_pair):
+                if top_pair[0] != top_pair[1]: #filter
+                    return int(i)  # Return the top pair if found
+        return None  # Return None if no pairs match
+
+    # Apply the function to the column to extract overlapping pairs
+    ovlp_lr_idx1 = database1["interaction.interaction_name"].apply(check_overlap_for_cellchat)
+    ovlp_lr_idx2 = database2[["Ligand", "Receptor"]].apply(check_overlap_for_cellnest, axis=1)
+    ovlp_lr_idx = list(ovlp_lr_idx1) + list(ovlp_lr_idx2)
+    ovlp_lr_idx_series = pd.Series(ovlp_lr_idx)
+    ovlp_lr_idx = np.unique(ovlp_lr_idx_series.dropna().tolist())
+    # FDR p_value correction
+    
+    pair_df["ligand_receptor"] = False
+    pair_df.loc[ovlp_lr_idx, "ligand_receptor"] = True
+
+    # Transform the "Deduction" column into "10log(1-D)" and keep sign
+    pair_df['10log(1-D)'] = -10*np.log(1-np.abs(pair_df['Deduction'])) / np.log(2)  # Apply -log transformation
+    pair_df['symbol'] = [1 if i >0 else -1 for i in pair_df['Deduction']]
+    pair_df['10log(1-D)'] = pair_df['10log(1-D)']*pair_df['symbol']
+    return pair_df
+def filter_df(pair_df):
+    '''
+    Filter out the significant gene pairs
+    '''
+    filtered_df = pair_df[(pair_df["P_value"] < 0.05) & (pair_df["support_num"] > 50) & (pair_df["gene1"] != "<SEP>") & (pair_df["gene2"] != "<SEP>") & (pair_df["symbol"] == -1)]
+    reject, pvals_corrected, _, _ = multipletests(filtered_df["P_value"], alpha=0.05, method='fdr_bh')
+    filtered_df["adj_P_value"] = pvals_corrected
+    filtered_df = filtered_df[filtered_df["adj_P_value"] < 0.05]
+    ranked_df = filtered_df.sort_values(by="Deduction", ascending=True)
+    
+    # Optionally, reset the index if you want a cleaner DataFrame
+    return ranked_df
 

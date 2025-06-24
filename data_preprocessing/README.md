@@ -88,8 +88,9 @@ This is too large, you should build yourself according to the pair selection alg
 ```bash
 python build_pair.py
 ```
+For single sample example, please refer to the jupyter notebook as: build_pair.ipynb
 
-the pair-wise dataset can be generated for each slide.
+Finally, the pair-wise dataset can be generated for each slide.
 
 
 

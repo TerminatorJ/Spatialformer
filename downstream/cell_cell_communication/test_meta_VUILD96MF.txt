@@ -1,0 +1,831 @@
+,cell_types
+2460,not available
+2461,B cells
+2464,B cells
+2465,B cells
+2466,B cells
+2467,B cells
+2471,T-cells
+2472,T-cells
+2473,B cells
+2474,B cells
+2476,B cells
+2477,T-cells
+2480,T-cells
+2482,B cells
+2484,T-cells
+2485,T-cells
+2486,B cells
+2488,Proliferating Myeloid
+2490,B cells
+2491,T-cells
+2492,B cells
+2493,T-cells
+2495,B cells
+2496,B cells
+2497,T-cells
+2499,B cells
+2500,T-cells
+2501,T-cells
+2502,T-cells
+2503,Macrophages
+2504,Fibroblasts
+2505,T-cells
+2506,T-cells
+2507,T-cells
+2509,SPP1+ Macrophages
+2510,SPP1+ Macrophages
+2511,SPP1+ Macrophages
+2512,DCs
+2513,T-cells
+2514,Interstitial Macrophages
+2515,T-cells
+2516,T-cells
+2517,Fibroblasts
+2518,T-cells
+2519,T-cells
+2520,T-cells
+2521,Fibroblasts
+2522,Macrophages
+2523,T-cells
+2526,T-cells
+2527,Fibroblasts
+2528,Fibroblasts
+2529,B cells
+2530,T-cells
+2531,T-cells
+2533,Plasma
+2535,Lipofibroblasts
+2536,not available
+2537,Lymphatic/DCs
+2540,Venous
+2541,Venous
+2544,B cells
+2545,Venous
+2546,Plasma
+2547,B cells
+2611,B cells
+4134,B cells
+4137,Fibroblasts
+22583,Macrophages
+22584,Plasma
+22585,Plasma
+22587,SMCs
+22588,Fibroblasts
+22589,Macrophages
+22590,Fibroblasts
+22591,Interstitial Macrophages
+22593,not available
+22594,Plasma
+22595,B cells
+22597,SMCs
+23048,T-cells
+23050,Macrophages
+23051,Activated FBs
+23052,T-cells
+23053,Lipofibroblasts
+23054,Venous
+23057,Interstitial Macrophages
+23058,SMCs
+23061,Macrophages
+23063,SMCs
+23064,T-cells
+23066,T-cells
+23068,Plasma
+23071,T-cells
+23072,T-cells
+23073,Plasma
+23074,T-cells
+23075,T-cells
+23076,Fibroblasts
+23077,T-cells
+23078,B cells
+23079,T-cells
+23080,Macrophages
+23081,Macrophages
+23083,Macrophages
+23084,T-cells
+23086,Fibroblasts
+23087,B cells
+23089,T-cells
+23090,SMCs
+23091,Venous
+23092,Venous
+23093,Venous
+23094,Lipofibroblasts
+23095,Plasma
+23098,Macrophages
+23101,SMCs
+23102,Fibroblasts
+23103,Macrophages
+23105,Plasma
+23106,T-cells
+23118,Macrophages
+23119,T-cells
+23120,Macrophages
+23121,T-cells
+23122,T-cells
+23123,Fibroblasts
+23124,Fibroblasts
+23125,T-cells
+23126,T-cells
+23127,B cells
+23128,SPP1+ Macrophages
+23130,Macrophages
+23131,T-cells
+23132,Fibroblasts
+23133,DCs
+23134,T-cells
+23136,DCs
+23137,T-cells
+23138,Fibroblasts
+23139,T-cells
+23140,Macrophages
+23141,T-cells
+23142,DCs
+23143,DCs
+23144,T-cells
+23145,Macrophages
+23146,DCs
+23147,not available
+23149,DCs
+23150,T-cells
+23151,Macrophages
+23152,T-cells
+23153,not available
+23154,DCs
+23155,DCs
+23156,SPP1+ Macrophages
+23157,T-cells
+23158,Macrophages
+23159,not available
+23160,Macrophages
+23161,Macrophages
+23162,Macrophages
+23163,Macrophages
+23164,T-cells
+23165,Macrophages
+23166,Macrophages
+23167,Macrophages
+23168,DCs
+23169,SPP1+ Macrophages
+23170,Macrophages
+23171,Macrophages
+23172,DCs
+23174,T-cells
+23175,DCs
+23176,Macrophages
+23177,Proliferating Mesenchymal
+23178,DCs
+23179,Interstitial Macrophages
+23180,T-cells
+23182,T-cells
+23183,Plasma
+23184,T-cells
+23185,Macrophages
+23188,Interstitial Macrophages
+23189,T-cells
+23192,T-cells
+23198,Fibroblasts
+23202,Macrophages
+23205,Macrophages
+23214,T-cells
+23218,DCs
+23222,T-cells
+23224,T-cells
+23226,DCs
+23228,Macrophages
+23230,Macrophages
+23232,DCs
+23239,T-cells
+23243,Macrophages
+23244,Macrophages
+23248,Macrophages
+23250,Macrophages
+23252,T-cells
+23254,DCs
+23255,Macrophages
+23263,T-cells
+23271,Macrophages
+23278,Macrophages
+23280,Macrophages
+23585,Venous
+23586,NK cells
+23587,T-cells
+23588,Macrophages
+23590,Venous
+23591,Macrophages
+23593,Fibroblasts
+23594,Venous
+23595,B cells
+23597,T-cells
+23598,T-cells
+23599,SMCs
+23600,DCs
+23603,T-cells
+23605,Plasma
+23606,T-cells
+23607,T-cells
+23609,T-cells
+23610,Mast
+23612,T-cells
+23613,Macrophages
+23614,T-cells
+23615,Fibroblasts
+23616,Macrophages
+23617,T-cells
+23618,Fibroblasts
+23619,T-cells
+23620,Macrophages
+23621,T-cells
+23622,T-cells
+23623,Macrophages
+23624,Macrophages
+23625,T-cells
+23626,T-cells
+23627,Fibroblasts
+23628,not available
+23629,T-cells
+23630,Fibroblasts
+23631,not available
+23828,Macrophages
+23829,T-cells
+23830,Fibroblasts
+23831,T-cells
+23832,T-cells
+23833,T-cells
+23834,T-cells
+23835,DCs
+23836,Proliferating Myeloid
+23838,T-cells
+23839,T-cells
+23840,Macrophages
+23841,T-cells
+23842,DCs
+23843,Macrophages
+23844,Interstitial Macrophages
+23845,Macrophages
+23846,Fibroblasts
+23848,T-cells
+23849,Macrophages
+23850,Macrophages
+23851,Macrophages
+23852,Macrophages
+23853,Peribronchial FBs
+23854,Macrophages
+23855,T-cells
+23856,DCs
+23857,T-cells
+23858,DCs
+23859,Interstitial Macrophages
+23860,not available
+23861,T-cells
+23862,T-cells
+23863,DCs
+23864,DCs
+23865,T-cells
+23866,T-cells
+23867,SPP1+ Macrophages
+23868,Macrophages
+23869,T-cells
+23871,Plasma
+23874,T-cells
+23880,B cells
+23888,B cells
+23889,B cells
+23892,B cells
+23893,T-cells
+23901,T-cells
+23903,T-cells
+23906,T-cells
+23909,T-cells
+23912,B cells
+23916,T-cells
+23919,T-cells
+23920,T-cells
+23921,T-cells
+23923,Fibroblasts
+23924,T-cells
+23925,not available
+23926,DCs
+23927,T-cells
+23928,Fibroblasts
+23929,Macrophages
+23930,T-cells
+23933,Fibroblasts
+23934,Fibroblasts
+23935,DCs
+23936,T-cells
+23937,Fibroblasts
+23938,Macrophages
+23939,DCs
+23940,Macrophages
+23941,Macrophages
+23942,SPP1+ Macrophages
+23943,T-cells
+23944,DCs
+23945,T-cells
+23946,Macrophages
+23948,Macrophages
+23949,Macrophages
+23950,SPP1+ Macrophages
+23951,DCs
+23952,DCs
+23953,Proliferating Myeloid
+23954,Proliferating Myeloid
+23955,DCs
+23956,DCs
+23957,DCs
+23958,Interstitial Macrophages
+23959,Macrophages
+23960,Macrophages
+23961,SPP1+ Macrophages
+23962,Macrophages
+23963,DCs
+23964,T-cells
+23965,DCs
+23966,SPP1+ Macrophages
+23967,Macrophages
+23968,DCs
+23969,T-cells
+23970,SPP1+ Macrophages
+23971,T-cells
+23972,Proliferating Myeloid
+23973,T-cells
+23974,T-cells
+23975,Macrophages
+23976,DCs
+23977,Macrophages
+23978,DCs
+23979,DCs
+23980,not available
+23981,DCs
+23982,T-cells
+23983,T-cells
+23984,Macrophages
+23985,Macrophages
+23986,Interstitial Macrophages
+23987,T-cells
+23988,Macrophages
+23989,T-cells
+23990,T-cells
+23991,T-cells
+23992,T-cells
+23993,Interstitial Macrophages
+23994,Plasma
+23995,T-cells
+23996,T-cells
+23998,Fibroblasts
+24004,Proliferating Lymphoid
+24006,T-cells
+24007,T-cells
+24008,T-cells
+24009,DCs
+24010,DCs
+24011,not available
+24012,T-cells
+24013,Macrophages
+24015,T-cells
+24016,Proliferating Lymphoid
+24017,Proliferating Myeloid
+24018,T-cells
+24019,B cells
+24020,Proliferating Lymphoid
+24021,T-cells
+24022,Proliferating Myeloid
+24023,Fibroblasts
+24024,Macrophages
+24025,Proliferating Myeloid
+24026,T-cells
+24027,Proliferating Lymphoid
+24028,Macrophages
+24029,Proliferating Myeloid
+24030,T-cells
+24031,DCs
+24032,DCs
+24034,T-cells
+24035,T-cells
+24036,T-cells
+24037,T-cells
+24039,T-cells
+24041,Proliferating Lymphoid
+24042,T-cells
+24043,DCs
+24044,SMCs
+24046,SPP1+ Macrophages
+24047,T-cells
+24048,Venous
+24049,Venous
+24051,Macrophages
+24053,not available
+24054,Venous
+24055,Venous
+24056,T-cells
+24057,DCs
+24058,Venous
+24059,T-cells
+24060,DCs
+24062,SMCs
+24063,T-cells
+24065,T-cells
+24066,T-cells
+24069,T-cells
+24070,Mast
+24071,Interstitial Macrophages
+24072,Plasma
+24073,SMCs
+24074,T-cells
+24075,Plasma
+24076,Interstitial Macrophages
+24077,T-cells
+24078,T-cells
+24079,Fibroblasts
+24081,Fibroblasts
+24082,SMCs
+24083,T-cells
+24084,Macrophages
+24085,T-cells
+24086,NK cells
+24089,T-cells
+24090,T-cells
+24145,Proliferating Myeloid
+24146,B cells
+24147,T-cells
+24148,T-cells
+24149,T-cells
+24150,SPP1+ Macrophages
+24152,T-cells
+24153,T-cells
+24154,Venous
+24155,Proliferating Lymphoid
+24156,Venous
+24157,B cells
+24158,T-cells
+24159,T-cells
+24160,T-cells
+24162,B cells
+24164,Interstitial Macrophages
+24165,Fibroblasts
+24166,Fibroblasts
+24167,Plasma
+24179,T-cells
+24180,Fibroblasts
+24181,T-cells
+24189,DCs
+24190,T-cells
+24191,Macrophages
+24192,T-cells
+24193,Macrophages
+24194,Macrophages
+24195,not available
+24196,DCs
+24197,Macrophages
+24198,Macrophages
+24199,not available
+24200,Macrophages
+24201,Macrophages
+24203,T-cells
+24204,Fibroblasts
+24205,Interstitial Macrophages
+24206,Macrophages
+24207,Macrophages
+24208,T-cells
+24209,Fibroblasts
+24210,DCs
+24211,T-cells
+24213,T-cells
+24214,SPP1+ Macrophages
+24215,T-cells
+24216,DCs
+24217,DCs
+24218,Proliferating Myeloid
+24219,Macrophages
+24221,T-cells
+24222,Macrophages
+24223,T-cells
+24224,DCs
+24225,T-cells
+24226,not available
+24227,DCs
+24228,Macrophages
+24229,not available
+24230,DCs
+24231,T-cells
+24232,T-cells
+24233,Macrophages
+24235,T-cells
+24239,T-cells
+24240,B cells
+24241,DCs
+24249,T-cells
+24250,T-cells
+24251,Fibroblasts
+24254,T-cells
+24258,T-cells
+24259,Venous
+24261,T-cells
+24264,B cells
+24267,T-cells
+24270,Macrophages
+24271,DCs
+24275,Macrophages
+24280,DCs
+24293,Interstitial Macrophages
+24298,B cells
+24299,T-cells
+24300,B cells
+24301,T-cells
+24302,B cells
+24304,B cells
+24306,B cells
+24307,B cells
+24309,B cells
+24313,B cells
+24314,T-cells
+24315,T-cells
+24317,T-cells
+24320,T-cells
+24324,T-cells
+24325,Fibroblasts
+24326,Fibroblasts
+24327,T-cells
+24328,T-cells
+24329,T-cells
+24331,Macrophages
+24333,T-cells
+24334,T-cells
+24335,T-cells
+24336,Macrophages
+24337,Fibroblasts
+24338,B cells
+24339,Fibroblasts
+24340,T-cells
+24341,T-cells
+24342,T-cells
+24343,Venous
+24344,T-cells
+24345,DCs
+24346,DCs
+24347,T-cells
+24349,Macrophages
+24350,T-cells
+24351,T-cells
+24352,T-cells
+24353,DCs
+24354,Macrophages
+24355,T-cells
+24356,T-cells
+24357,DCs
+24358,DCs
+24359,DCs
+24360,DCs
+24361,DCs
+24362,Macrophages
+24363,DCs
+24364,SPP1+ Macrophages
+24365,not available
+24366,T-cells
+24367,DCs
+24368,DCs
+24369,DCs
+24370,DCs
+24371,DCs
+24372,DCs
+24373,DCs
+24374,DCs
+24375,DCs
+24376,DCs
+24377,DCs
+24378,Macrophages
+24379,DCs
+24380,DCs
+24381,DCs
+24382,Macrophages
+24383,Fibroblasts
+24384,SPP1+ Macrophages
+24385,DCs
+24386,Proliferating Myeloid
+24387,T-cells
+24388,not available
+24389,SPP1+ Macrophages
+24390,SPP1+ Macrophages
+24391,DCs
+24422,T-cells
+24423,T-cells
+24424,DCs
+24426,T-cells
+24427,Macrophages
+24428,T-cells
+24429,T-cells
+24430,T-cells
+24431,SPP1+ Macrophages
+24432,T-cells
+24433,Macrophages
+24434,T-cells
+24437,T-cells
+24438,Macrophages
+24439,DCs
+24440,T-cells
+24441,Macrophages
+24442,T-cells
+24443,DCs
+24444,T-cells
+24445,T-cells
+24446,DCs
+24447,not available
+24448,T-cells
+24449,Fibroblasts
+24450,T-cells
+24451,T-cells
+24453,not available
+24454,DCs
+24455,B cells
+24456,DCs
+24457,DCs
+24458,Proliferating Mesenchymal
+24462,DCs
+24529,B cells
+24536,B cells
+24539,B cells
+24540,T-cells
+24541,B cells
+24542,B cells
+24544,B cells
+24545,B cells
+24546,B cells
+24547,T-cells
+24549,B cells
+24550,B cells
+24551,T-cells
+24553,T-cells
+24555,B cells
+24556,T-cells
+24559,B cells
+24560,B cells
+24561,B cells
+24562,B cells
+24563,B cells
+24564,T-cells
+24565,B cells
+24566,B cells
+24568,B cells
+24569,B cells
+24571,B cells
+24572,B cells
+24574,B cells
+24575,B cells
+24576,T-cells
+24577,B cells
+24578,T-cells
+24580,B cells
+24581,B cells
+24582,T-cells
+24583,T-cells
+24585,B cells
+24587,B cells
+24679,Plasma
+24680,Macrophages
+24681,T-cells
+24683,B cells
+24684,T-cells
+24685,B cells
+24686,B cells
+24688,B cells
+24690,B cells
+24691,T-cells
+24692,T-cells
+24694,B cells
+24696,B cells
+24697,B cells
+24698,T-cells
+24700,B cells
+24701,B cells
+24705,B cells
+24706,T-cells
+24707,Plasma
+24708,T-cells
+24709,Plasma
+24710,B cells
+24712,B cells
+24713,B cells
+24715,B cells
+24716,T-cells
+24717,T-cells
+24718,Fibroblasts
+24720,T-cells
+24721,B cells
+24723,T-cells
+24724,T-cells
+24725,B cells
+24726,B cells
+24727,T-cells
+24729,B cells
+24730,B cells
+24732,B cells
+24735,T-cells
+24737,Fibroblasts
+24738,B cells
+24740,T-cells
+24742,B cells
+24744,B cells
+24745,T-cells
+24746,B cells
+24747,T-cells
+24748,Plasma
+24749,T-cells
+24750,Macrophages
+24751,B cells
+24752,B cells
+24753,T-cells
+24756,B cells
+24757,T-cells
+24758,T-cells
+24759,B cells
+24760,T-cells
+24761,Macrophages
+24762,DCs
+24763,Macrophages
+24764,Macrophages
+24765,Macrophages
+24766,T-cells
+24767,T-cells
+24768,Macrophages
+24769,Proliferating Lymphoid
+24770,T-cells
+24771,T-cells
+24772,T-cells
+24773,DCs
+24774,not available
+24775,T-cells
+24776,T-cells
+24780,B cells
+24781,B cells
+24782,B cells
+24784,T-cells
+24786,B cells
+24787,B cells
+24788,B cells
+24789,T-cells
+24791,T-cells
+24792,T-cells
+24793,B cells
+24796,B cells
+24797,B cells
+24798,T-cells
+24799,T-cells
+24803,B cells
+24804,T-cells
+24805,B cells
+24806,B cells
+24808,T-cells
+24809,B cells
+24810,T-cells
+24811,B cells
+24813,B cells
+24814,T-cells
+24815,B cells
+24816,B cells
+24817,T-cells
+24818,T-cells
+24819,Macrophages
+24820,Interstitial Macrophages
+44328,T-cells
+44330,T-cells
+44332,T-cells
+44334,Macrophages
+44336,T-cells
+44337,Plasma
+44339,T-cells
+44342,not available
+44343,B cells
+44344,Fibroblasts
+44346,T-cells
+44348,Fibroblasts
+44350,Fibroblasts
+44353,Macrophages
+44355,Plasma
+44359,T-cells
+44364,T-cells
+44367,Macrophages
+44368,T-cells
+44376,B cells
+44380,T-cells
+44431,B cells
+44433,T-cells
+44435,T-cells
+44438,B cells
+44446,B cells
+44448,T-cells
+44451,B cells
+44452,B cells
+44454,T-cells
+45016,B cells
+45018,B cells
+45524,B cells
+45527,Macrophages
+45530,B cells
+45533,T-cells
+45536,B cells
+45541,B cells
+45546,Plasma
+45548,B cells

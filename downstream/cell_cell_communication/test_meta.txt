@@ -1,0 +1,160 @@
+cell_id,cell_types
+aaaaemlm-1,Macrophages
+aaaaemmb-1,Fibroblasts
+aaaaencp-1,gCap
+aaaaenea-1,T-cells
+aaaaenej-1,aCap
+aaaaenek-1,SMCs
+aaaaenel-1,T-cells
+aaaaenem-1,T-cells
+aaaaenen-1,NK cells
+aaaaeneo-1,SMCs
+aaaaenep-1,Proliferating Lymphoid
+aaaaenfa-1,T-cells
+aaaaenfb-1,not available
+aaaaenfc-1,T-cells
+aaaaenfd-1,Fibroblasts
+aaaaenfe-1,Fibroblasts
+aaaaenff-1,Plasma
+aaaaenfg-1,AT2
+aaaaenfh-1,Macrophages
+aaaaenfj-1,T-cells
+aaaaenfn-1,T-cells
+aaaaenfo-1,DCs
+aaaaenhj-1,T-cells
+aaaaenhl-1,T-cells
+aaaaenhm-1,gCap
+aaaaenhn-1,AT2
+aaaaenho-1,DCs
+aaaaenhp-1,AT2
+aaaaenia-1,aCap
+aaaaenib-1,Fibroblasts
+aaaaenic-1,T-cells
+aaaaenid-1,AT2
+aaaaenie-1,AT2
+aaaaenig-1,Alveolar FBs
+aaaaenih-1,AT2
+aaaaenii-1,Fibroblasts
+aaaaenij-1,Interstitial Macrophages
+aaaaenik-1,Macrophages
+aaaaenil-1,NK cells
+aaaaenim-1,AT2
+aaaaenin-1,Mast
+aaaaenio-1,AT2
+aaaaenip-1,T-cells
+aaaaenja-1,AT2
+aaaaenjb-1,Macrophages
+aaaaenjc-1,AT2
+aaaaenjd-1,T-cells
+aaaaenje-1,Macrophages
+aaaaenjf-1,AT2
+aaaaenjg-1,T-cells
+aaaaenjh-1,AT2
+aaaaenji-1,AT2
+aaaaenjj-1,AT2
+aaaaenjk-1,AT2
+aaaaenjl-1,AT2
+aaaaenjm-1,Fibroblasts
+aaaaenjn-1,not available
+aaaaenjo-1,Transitional AT2
+aaaaenjp-1,Transitional AT2
+aaaaenka-1,Macrophages
+aaaaenkb-1,Macrophages
+aaaaenkc-1,not available
+aaaaenkd-1,Alveolar FBs
+aaaaenke-1,Fibroblasts
+aaaaenkf-1,Fibroblasts
+aaaaenkg-1,AT2
+aaaaeofb-1,AT2
+aaaaeofc-1,Fibroblasts
+aaaaeofd-1,AT2
+aaaaeofg-1,Macrophages
+aaaaeofh-1,AT2
+aaaaeofj-1,Proliferating Epithelial
+aaaaeofk-1,Proliferating Epithelial
+aaaaeoga-1,AT2
+aaaaeohk-1,Alveolar FBs
+aaaaeohl-1,Proliferating Mesenchymal
+aaaaeohm-1,Fibroblasts
+aaaaeohn-1,not available
+aaaaeoho-1,Macrophages
+aaaaeohp-1,Macrophages
+aaaaeoia-1,Lymphatic/DCs
+aaaaeoib-1,Alveolar FBs
+aaaaeoic-1,T-cells
+aaaaeoid-1,Venous
+aaaaeoie-1,T-cells
+aaaaeoif-1,Fibroblasts
+aaaaeoig-1,T-cells
+aaaaeoih-1,T-cells
+aaaaeoii-1,not available
+aaaaeoij-1,Macrophages
+aaaaeoik-1,AT1
+aaaaeoil-1,not available
+aaaaeoim-1,Macrophages
+aaaaeoin-1,T-cells
+aaaaeoip-1,Macrophages
+aaaaeoja-1,Fibroblasts
+aaaaeojb-1,Proliferating Epithelial
+aaaaeojc-1,Alveolar FBs
+aaaaeojd-1,AT2
+aaaaeoje-1,Alveolar FBs
+aaaaeojf-1,T-cells
+aaaaeojg-1,AT2
+aaaaeojh-1,AT2
+aaaaeojj-1,T-cells
+aaaaeojk-1,Fibroblasts
+aaaaeojl-1,AT2
+aaaaeojm-1,T-cells
+aaaaeojn-1,T-cells
+aaaaeojo-1,Macrophages
+aaaaeojp-1,Macrophages
+aaaaeoka-1,Proliferating Epithelial
+aaaaeokd-1,AT2
+aaaaeoke-1,AT2
+aaaaeokf-1,Alveolar FBs
+aaaaeoki-1,Macrophages
+aaaaeokj-1,T-cells
+aaaaeokk-1,AT2
+aaaaeokl-1,AT2
+aaaaeokn-1,Macrophages
+aaaaeola-1,AT2
+aaaaeolb-1,SMCs
+aaaaeolc-1,AT2
+aaaaeold-1,AT2
+aaaaeole-1,SPP1+ Macrophages
+aaaaeolj-1,AT2
+aaaaeoll-1,SPP1+ Macrophages
+aaaaeoln-1,AT2
+aaaaeolo-1,Macrophages
+aaaaeoma-1,Fibroblasts
+aaaaeomd-1,FABP4+ Macrophages
+aaaaeome-1,FABP4+ Macrophages
+aaaaeomi-1,SPP1+ Macrophages
+aaaaeomp-1,Fibroblasts
+aaaaeonb-1,T-cells
+aaaaeond-1,Macrophages
+aaaaeone-1,AT2
+aaaaeonf-1,Activated FBs
+aaaaeong-1,AT2
+aaaaeonh-1,AT2
+aaaaeoni-1,AT2
+aaaaeonj-1,AT2
+aaaaeonk-1,AT2
+aaaaeonl-1,AT2
+aaaaeonm-1,Activated FBs
+aaaaeonn-1,Alveolar FBs
+aaaaeono-1,AT2
+aaaaeonp-1,AT2
+aaaaepfh-1,AT2
+aaaaepfk-1,AT2
+aaaaepfn-1,Fibroblasts
+aaaaepgc-1,SPP1+ Macrophages
+aaaaepgg-1,Activated FBs
+aaaaepgh-1,KRT5-/KRT17+
+aaaaepgl-1,Proliferating Lymphoid
+aaaaepgm-1,T-cells
+aaaaephd-1,T-cells
+aaaaephe-1,FABP4+ Macrophages
+aaaaephf-1,AT2
+aaaaephg-1,not available

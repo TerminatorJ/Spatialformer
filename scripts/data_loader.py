@@ -567,11 +567,11 @@ class CustomDataModule(LightningDataModule):
     def test_dataloader(self):
         return DataLoader(self.test_dataset, batch_size = self.batch_size, collate_fn=self.fast_collator, num_workers=self.num_workers)
 
-def create_dataloader_eval(datapath, num_workers, batch_size, directionality, 
+def create_dataloader_eval(dataset, num_workers, batch_size, directionality, 
                            context_length, padding_idx, special_token_num, 
                            n_bins, sep_token, cls_token, kfold = False, cur_fold = False, split = False, cell_id = False, shuffle=False):
 
-    iter_dataset = DynamicHuggingFaceDatasetEval(datapath, kfold = kfold, cur_fold = cur_fold, split = split)
+    iter_dataset = DynamicHuggingFaceDatasetEval(dataset, kfold = kfold, cur_fold = cur_fold, split = split)
     collator = CustomDataCollator(directionality, context_length, padding_idx, special_token_num, n_bins, sep_token, cls_token, cell_id)
     dataloader = DataLoader(iter_dataset, batch_size = batch_size,collate_fn=collator, num_workers=num_workers, shuffle=shuffle)
     return dataloader

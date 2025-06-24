@@ -271,7 +271,7 @@ class GeneTokenizer:
         self.tissue_id = self.token_to_id[tissue]
         self.condition_id = self.token_to_id[condition]
         self.genes = None  # Placeholder for gene names, to be set later
-        self.gene_median_dict = pickle.load(open("/scratch/project_465001820/Spatialformer/data/Xenium_median_gene_final_exp.pkl", "rb"))
+        self.gene_median_dict = pickle.load(open("/home/sxr280/Spatialformer/data/Xenium_median_gene_final_exp.pkl", "rb"))
     # def non_zero_genes(self, expression_vector):
     #     # Only select the genes with expression level
     #     expression_vector = expression_vector[expression_vector > 0]
@@ -345,6 +345,8 @@ class GeneExpressionPairDataset(Dataset):
         self.tokenizer = tokenizer
         self.mode = self.tokenizer.mode
         self.pair_label = pair_label
+        self.left_cells = left_cells
+        self.right_cells = right_cells
         all_cell_names = list(adata.obs.index)
         self.left_indices = [all_cell_names.index(left_cell) for left_cell in left_cells]
         self.right_indices = [all_cell_names.index(right_cell) for right_cell in right_cells]
@@ -369,7 +371,7 @@ class GeneExpressionPairDataset(Dataset):
         tokens, prefix, end = self.tokenizer.encode(left_expression_vector, right_expression_vector)
 
         # import pdb; pdb.set_trace()
-        return tokens, prefix, end, self.left_indices[idx], self.right_indices[idx], self.pair_label[idx]
+        return tokens, prefix, end, self.left_indices[idx], self.right_indices[idx], self.pair_label[idx], self.left_cells[idx] , self.right_cells[idx]
 
 def collate_fn(batch):
     def seg_id(token, sep_token):
@@ -420,9 +422,12 @@ def collate_fn(batch):
             "attention_mask": torch.tensor(attention_masks).to(torch.bool),
             "token_type_ids": torch.tensor(token_type_ids)}
     elif len(indices[0]) == 2: #if pair, there mush be pairs indices returned
+        # import pdb; pdb.set_trace()
         left_index = list(map(lambda x: x[3], batch))
         right_index = list(map(lambda x: x[4], batch))
         pair_label = list(map(lambda x: x[5], batch))
+        left_cell = list(map(lambda x: x[6], batch))
+        right_cell = list(map(lambda x: x[7], batch))
         for i, (token1,token2) in enumerate(indices):
             token1_len = len(token1)
             token2_len = len(token2)
@@ -458,14 +463,25 @@ def collate_fn(batch):
             padded_indices.append(padded_indice)
             attention_masks.append(attention_mask)
             token_type_ids.append(token_type_id)
-        # import pdb; pdb.set_trace()
+        # import pdb; pdb.cset_trace()
         return {"indices": torch.tensor(padded_indices), 
                 "attention_mask": torch.tensor(attention_masks).to(torch.bool),
                 "token_type_ids": torch.tensor(token_type_ids),
                 "left_index": torch.tensor(left_index),
                 "right_index": torch.tensor(right_index),
-                "pair_label": torch.tensor(pair_label)}
-
+                "pair_label": torch.tensor(pair_label),
+                "left_cell_ids": left_cell,
+                "right_cell_ids": right_cell
+                }
+# 'adjmtx': self.gg_mtx,
+#                 'indices': self.full_tokens,
+#                 'attention_mask': attention_masks,
+#                 'normalized_exp': self.norm_exp,
+#                 "Expression": self.full_exp,
+#                 "pair_label": pair_labels,
+#                 "token_type_ids": self.token_type_ids,
+#                 "left_cell_ids": left_cell_ids,
+#                 "right_cell_ids": right_cell_ids
 
 
 if __name__ == "__main__":

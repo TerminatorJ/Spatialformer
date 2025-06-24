@@ -232,7 +232,7 @@ with torch.no_grad():
 The model can be further pretrained with the following codes.
 Get the script/train.py for pretraining as below:
 
-The parameters of the configuration can refer to  [configurations](config/README.md)
+The parameters of the configuration can refer to  [configurations](config/README.md)  
 Pretrain the singular input model
 ```python
 python ./script/train.py --config /scratch/project_465001820/Spatialformer/config/_config_train_large_single.json

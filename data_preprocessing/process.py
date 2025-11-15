@@ -14,7 +14,11 @@ from multiprocessing import Process
 from scipy.spatial import distance_matrix 
 from scipy.spatial import KDTree 
 import networkx as nx 
+<<<<<<< HEAD
+import community.community_louvain as community_louvain
+=======
 import community as community_louvain
+>>>>>>> b2e7e5a4c9fe25cbd14b596b521ddb6af404bf9e
 from scipy.linalg import block_diag
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
@@ -26,6 +30,10 @@ from utils import unique_list_mapping_to_one_hot, one_graph_splits_nx
 import seaborn as sns
 import matplotlib.pyplot as plt
 from collections import Counter
+<<<<<<< HEAD
+from itertools import combinations
+=======
+>>>>>>> b2e7e5a4c9fe25cbd14b596b521ddb6af404bf9e
 from scipy.spatial.distance import cdist
 
 
@@ -229,6 +237,31 @@ class KNN_Radius_Graph(object):
             plt.savefig(f"/scratch/project_465001027/spatialformer/figure/{self.cell_ID}_transcripts_heatmap.png", dpi = 300)
         
         #get genes of current cell
+<<<<<<< HEAD
+        selected_genes = self.node_type() 
+        #convert the communities from index to gene
+        gene_pair_counter = {}
+        gene_pair_set = set()
+
+        for comm in sorted(communities.keys()):
+            transcript_index = communities[comm]
+            genes_comm = selected_genes[transcript_index]
+
+            # Count frequency of each gene once
+            counts = Counter(genes_comm)
+
+            # Filter genes by threshold BEFORE pairing
+            valid_genes = [g for g, cnt in counts.items() if cnt >= self_threshold]
+
+            # Now generate pairs from only valid genes
+            for g1, g2 in combinations(valid_genes, 2):
+                if counts[g2] >= pair_threshold:
+                    pair = tuple(sorted((g1, g2)))   # ensures consistent order
+                    pair_str = f"{pair[0]}_{pair[1]}"
+                    gene_pair_set.add(pair_str)
+                    gene_pair_counter[pair_str] = counts[g1] + counts[g2]
+                
+=======
         selected_genes = np.sort(self.node_type()) #ordered references for every transcripts
         #convert the communities from index to gene
         gene_pair_counter = {}
@@ -246,6 +279,7 @@ class KNN_Radius_Graph(object):
                                 pair_str = sorted_pair[0] + "_" + sorted_pair[1]
                                 gene_pair_set.add(pair_str)
                                 gene_pair_counter[pair_str] = genes_counter[gene_l] + genes_counter[gene_r]
+>>>>>>> b2e7e5a4c9fe25cbd14b596b521ddb6af404bf9e
         # unique_genes =  list(sorted(set(selected_genes))) 
         unique_genes = list(sorted(self.ref_gene))
         gene_num = len(unique_genes)

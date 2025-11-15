@@ -18,7 +18,7 @@
 /downstream/subcellular_localization_prediction/templates/
 /downstream/subcellular_localization_prediction/transcripts_genesamepatterns.csv
 /downstream/cell_cell_communication/benchmark/CellContrast/
-
+downstream/Coordinate_perturbation/data/*
 /Figures/*
 
 

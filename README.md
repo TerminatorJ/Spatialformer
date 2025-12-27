@@ -31,7 +31,7 @@ Spatial transcriptomics quantifies gene expression within its spatial context, s
   - index-based storage for p/n pairs, which save large amount of memory usage
 - Upgraded to **GraphSAGE v2**, supporting 6,036 spatial embeddings
 - Integrated **FlashAttention v2** for efficient long-sequence processing
-- Embeddings enlarged according to the new vocabulary size
+- Embedding size was enlarged according to the new gene vocabulary size
 
 
 

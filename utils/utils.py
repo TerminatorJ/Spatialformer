@@ -167,78 +167,6 @@ class CustomIterableDataset:
 # dataloader = torch.utils.data.DataLoader(ids, num_workers=4)
 
 
-class DynamicHuggingFaceDataset2(IterableDataset):
-    def __init__(self, datapath, split, resume_index):
-        '''
-        datapath: cache path
-        split: which split to access ('train' or 'test')
-        shuffle: whether to shuffle the dataset
-        '''
-        self.current_index = resume_index
-        all_files = os.listdir(datapath)  # Corrected method name
-        self.datasets_paths = [os.path.join(datapath, file) for file in all_files if file.endswith("pair")]
-        self.split = split
-    def load_dataset(self, path):
-        dataset = load_from_disk(path)
-        return dataset
-
-    def __iter__(self):
-        # Iterate through datasets
-        for idx, datasets_path in tqdm(enumerate(self.datasets_paths[:2][self.current_index:], start=self.current_index)):
-        # for datasets_path in tqdm(self.datasets_paths):
-            if "THD0008" not in datasets_path:
-        # for i in tqdm(range(0, len(self.datasets_paths))):
-            # if i + 1 < len(self.datasets_paths):
-            #     pairs_path = [self.datasets_paths[i], self.datasets_paths[i + 1]]
-            # else:
-            #     pairs_path = [self.datasets_paths[i]]
-
-            # pair_dataset = []
-                # for path in pairs_path:
-                try:
-                    dataset = self.load_dataset(datasets_path)
-                except FileNotFoundError:
-                    print(f"{datasets_path} is not a valid dataset")
-                    continue
-                    # dataset = dataset[:10]###delete
-                    # Split the dataset into train/test
-                # import pdb; pdb.set_trace()
-                dataset = dataset.select(range(1000))  ##delete
-                split_dataset = dataset.train_test_split(test_size=0.001, seed=42)
-                # split_dataset = dataset.train_test_split(test_size=0.001)
-                    # import pdb; pdb.set_trace()
-                    ##   
-                print("datasets_path:", datasets_path)
-                print(split_dataset)
-                    # Convert to IterableDataset
-                if self.split == "train":
-                    iter_dataset = split_dataset["train"].to_iterable_dataset(num_shards=64)
-                        # pair_dataset.append(iter_dataset)
-                    iter_dataset = iter_dataset.shuffle(buffer_size=10_000, seed=42)###
-                    import pdb; pdb.set_trace()
-                    # iter_dataset = split_dataset_by_node(iter_dataset, world_size=64, rank=0)
-                elif self.split == "test":
-                    iter_dataset = split_dataset["test"].to_iterable_dataset(num_shards=1)##8
-                    # iter_dataset = split_dataset_by_node(iter_dataset, world_size=64, rank=0)
-                    import pdb; pdb.set_trace()
-                yield from iter_dataset 
-                # After processing a dataset, save the index for resuming training 
-                self.current_index = idx + 1
-            # pair_dataset.append(iter_dataset)
-        # if pair_dataset:
-        #     if self.split == "train":
-        #         iter_pair_dataset = concatenate_datasets(pair_dataset)
-        #         iter_pair_dataset = iter_pair_dataset.shuffle(buffer_size=10_000, seed=42)
-        #         yield from iter_pair_dataset 
-        #     elif self.split == "test":
-        #         iter_pair_dataset = concatenate_datasets(pair_dataset)
-        #         yield from iter_pair_dataset
-        # else:
-        #     print("No valid datasets found in the current pair.")
-    # def set_state(self, index):
-    #     self.current_index = index
-    # def get_state(self):
-    #     return self.current_index
 
 class NonRedundantSampler:
     def __init__(self, total_samples, batch_size):
@@ -343,13 +271,17 @@ class DynamicHuggingFaceDataset2(IterableDataset):
         '''
         # self.current_index = resume_index
         all_files = os.listdir(datapath)  # Corrected method name
-        # self.datasets_paths = [os.path.join(datapath, file) for file in all_files if file.endswith("pair")] # train all the slides
-        self.datasets_paths = [os.path.join(datapath, file) for file in all_files if (("TIL" in file) & ("pair" in file)) or (("THD" in file) & ("pair" in file)) or (("VU" in file) & ("pair" in file))]
+        self.datasets_paths = [os.path.join(datapath, file) for file in all_files if file.endswith("pair")] # train all the slides
+        # self.datasets_paths = [os.path.join(datapath, file) for file in all_files if (("TIL" in file) & ("pair" in file)) or (("THD" in file) & ("pair" in file)) or (("VU" in file) & ("pair" in file))]
         print("number of training slides:", len(self.datasets_paths))
         counter = 0
         for path in self.datasets_paths:
             dataset = self.load_dataset(path)
-            counter += dataset.shape[0]
+            
+            try:
+                counter += dataset.shape[0]
+            except:
+                counter += dataset["train"].shape[0]
         self.datasize = counter
         # self.datasets_paths = [os.path.join(datapath, file) for file in all_files if file == "xenium_VUILD102LF_pair"]
         self.split = split
@@ -373,7 +305,7 @@ class DynamicHuggingFaceDataset2(IterableDataset):
             print("current datasets:", datasets_path)
             if "THD0008" not in datasets_path:
                 try:
-                    dataset = self.load_dataset(datasets_path)
+                    dataset = self.load_dataset(datasets_path)["train"]
                 except FileNotFoundError:
                     print(f"{datasets_path} is not a valid dataset")
                     continue
@@ -1211,30 +1143,25 @@ def split_data(adata, train_proportion=0.7, test_proportion=0.2, validation_prop
 
     return adata
 
-# def binary_to_coo_matrix(binary_matrix : np.array):
+def binary_to_coo_matrix(binary_matrix : np.array):
 
-#     # Find the indices where the elements are non-zero
-#     row, col = np.nonzero(binary_matrix)
-
-#     # Gather the non-zero elements. Since it's a binary matrix, these will all be 1s.
-#     data = binary_matrix[row, col]
-
-#     # Create the COO format sparse matrix
-#     sparse_matrix = coo_matrix((data, (row, col)), shape=binary_matrix.shape)
-
-#     return sparse_matrix
-def binary_to_coo_matrix(example):
-    adj_mtx = np.array(example["Gene_Gene_Matrix"])
-    # import pdb; pdb.set_trace()
     # Find the indices where the elements are non-zero
-    row, col = np.nonzero(adj_mtx)
+    row, col = np.nonzero(binary_matrix)
 
     # Gather the non-zero elements. Since it's a binary matrix, these will all be 1s.
+    data = binary_matrix[row, col]
+
+    # Create the COO format sparse matrix
+    sparse_matrix = coo_matrix((data, (row, col)), shape=binary_matrix.shape)
+
+    return sparse_matrix
+
+def extract_coo_components(example):
+    """Extract COO components from example dictionary"""
+    adj_mtx = np.array(example["Gene_Gene_Matrix"])
+    row, col = np.nonzero(adj_mtx)
     data = adj_mtx[row, col]
     shape = adj_mtx.shape
-    # Create the COO format sparse matrix
-    # sparse_matrix = coo_matrix((data, (row, col)), shape=binary_matrix.shape)
-
     return {"row": row, "col": col, "data": data, "shape": shape}
 
 def coo_to_binary_matrix(group_shape, data, row, col):
@@ -1368,35 +1295,28 @@ def complete_masking(batch, p, n_tokens, cls_token, mask_token, sep_token, pad_t
     # cls_token = 1
     # mask_token = 2
     
-
+    nomasked_token = 999
     indices = batch['indices']
-    # import pdb; pdb.set_trace()
-    # indices = torch.where(indices == 0, torch.tensor(padding_token), indices) # 0 is originally the padding token, we change it to 1
-    # batch['indices'] = indices
 
-    mask = 1 - torch.bernoulli(torch.ones_like(indices), p) # mask indices with probability p, represent mask as 0 (15%), 85% as 1, without padding tokens
+    mask = 1 - torch.bernoulli(torch.ones_like(indices), p) # mask indices with probability p, represent mask as 0 (15%), 85% as 1
     
-    # mask = torch.where(mask == 1, mask_token, mask)
     
     masked_indices = indices * mask # masked_indices, mute masked sites
     #embedding the mask token
     masked_indices = torch.where(masked_indices == 0, mask_token, masked_indices)
 
     masked_indices = torch.where(indices != pad_token, masked_indices, indices) # we just mask non-padding indices
-    mask = torch.where(indices == pad_token, torch.tensor(pad_token), mask) # the mask sequence with the padding tokens
-    # so we make the mask of all PAD tokens to be 1 so that it's not taken into account in the loss computation
-    # import pdb; pdb.set_trace()
+    mask = torch.where(indices == pad_token, nomasked_token, mask) # the mask sequence with the padding tokens
+    # so we make the mask of all PAD tokens to be 0 so that it's not taken into account in the loss computation
 
     # Notice for the following 2 lines that masked_indices has already not a single padding token masked
     masked_indices = torch.where(indices != cls_token, masked_indices, indices) # same with CLS, no CLS token can be masked
-    mask = torch.where(indices == cls_token, torch.tensor(pad_token), mask) # we change the mask so that it doesn't mask any CLS token
+    mask = torch.where(indices == cls_token, nomasked_token, mask) # we change the mask so that it doesn't mask any CLS token
     masked_indices = torch.where(indices != sep_token, masked_indices, indices) # same with SEP, no SEP token can be masked
-    mask = torch.where(indices == sep_token, torch.tensor(pad_token), mask) # we change the mask so that it doesn't mask any SEP token
-
+    mask = torch.where(indices == sep_token, nomasked_token, mask) # we change the mask so that it doesn't mask any SEP token
+    # import pdb; pdb.set_trace()
     #setting the 0 to the mask tokens
     mask = torch.where(mask == 0, mask_token, mask)
-
-    mask = torch.where(indices == pad_token, torch.tensor(pad_token), mask)
 
     # 80% of masked indices are masked
     # 10% of masked indices are a random token
@@ -1628,3 +1548,66 @@ def filter_df(pair_df):
     # Optionally, reset the index if you want a cleaner DataFrame
     return ranked_df
 
+
+
+def filter_state_dict_by_shape(src_sd, tgt_model):
+    tgt_sd = tgt_model.state_dict()
+    new_sd = OrderedDict()
+
+    loaded, skipped = [], []
+
+    for k, v in src_sd.items():
+        if k in tgt_sd and tgt_sd[k].shape == v.shape:
+            new_sd[k] = v
+            loaded.append(k)
+        else:
+            skipped.append(k)
+
+    return new_sd, loaded, skipped
+
+def load_original_into_flash(
+    flash_model,
+    original_ckpt_path,
+    device="cpu",
+    strict=False,
+):
+    ckpt = torch.load(original_ckpt_path, map_location=device)
+    src_sd = ckpt.get("state_dict", ckpt)
+
+    # 1️⃣ Remove known incompatible modules explicitly
+    blacklist_prefixes = (
+        "encoder.emb_proj",
+        "encoder.bpp_feature_proj",
+        "encoder.bpp_convnet",
+        "classifier_head",        # different output dim
+        "embeddings",             # vocab size mismatch
+        "spatialembeds.emb",      # vocab size mismatch
+        "adjprojector",           # architecture changed
+    )
+
+    filtered_src = {
+        k: v for k, v in src_sd.items()
+        if not k.startswith(blacklist_prefixes)
+    }
+
+    # 2️⃣ Match by key + shape
+    matched_sd, loaded, skipped = filter_state_dict_by_shape(
+        filtered_src, flash_model
+    )
+
+    # 3️⃣ Load
+    flash_model.load_state_dict(matched_sd, strict=False)
+
+    print(f"✅ Loaded {len(loaded)} tensors")
+    print(f"⚠️ Skipped {len(skipped)} tensors")
+
+    if strict:
+        print("\nSkipped keys:")
+        for k in skipped:
+            print("  ", k)
+
+    return flash_model
+
+def load_partial_embeddings(src_emb, tgt_emb):
+    n = min(src_emb.weight.shape[0], tgt_emb.weight.shape[0])
+    tgt_emb.weight.data[:n].copy_(src_emb.weight.data[:n])

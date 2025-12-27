@@ -10,7 +10,7 @@ p_path = current_file_path.parents[0]
 submodule_dir = os.path.join(p_path, "submodules")
 sys.path.append(submodule_dir)
 # import pdb; pdb.set_trace()
-from modules import Conv1DBlock, AltBlock
+from modules import Conv1DBlock,  AltBlock
 from alibi import get_alibi
 from masked_conv import MaskedConv2d
 
@@ -30,10 +30,11 @@ class SqueezeformerBlock(nn.Module):
                  drop_path=0.1,
                  activation='swish',
                  prenorm=True,
+                 flash_attn=False,
                  **kwargs):
         super().__init__(**kwargs)
         self.conv_blocks = nn.ModuleList([Conv1DBlock(dim,kernel_size,groups,1,1,conv_dropout,mlp_dropout,drop_path,conv_expand,activation,prenorm) for _ in range(num_conv_block)])
-        self.attn_blocks = nn.ModuleList([AltBlock(dim,num_heads,attn_expand,attn_dropout,mlp_dropout,drop_path,activation,prenorm) for _ in range(num_attn_block)])
+        self.attn_blocks = nn.ModuleList([AltBlock(dim,num_heads,attn_expand,attn_dropout,mlp_dropout,drop_path,activation,prenorm,flash_attn) for _ in range(num_attn_block)])
 
 
     def forward(self, inputs, mask=None, alibi_bias=None):
@@ -105,6 +106,7 @@ class SpaEncoder(nn.Module):
                  bpp_size=None,
                  bpp=True,
                  bpp_scale=None,
+                 flash_attn=False,
                  **kwargs):
         super().__init__(**kwargs)
         self.dim = dim
@@ -125,9 +127,9 @@ class SpaEncoder(nn.Module):
             self.bpp_weight = None
             # self.contrl_weight = None
         self.layers = nn.ModuleList(
-                    [SqueezeformerBlock(dim,kernel_size,groups,num_heads,conv_expand,attn_expand,num_conv_block,num_attn_block,conv_dropout,attn_dropout,mlp_dropout,drop_path,activation,prenorm) for _ in range(num_layers)])
+                    [SqueezeformerBlock(dim,kernel_size,groups,num_heads,conv_expand,attn_expand,num_conv_block,num_attn_block,conv_dropout,attn_dropout,mlp_dropout,drop_path,activation,prenorm,flash_attn) for _ in range(num_layers)])
     
-    def forward(self, seq_embed, bpp, mask=None):
+    def forward(self, seq_embed, bpp=None, mask=None):
         # import pdb; pdb.set_trace()
         x = seq_embed
         x = self.emb_dropout(x)

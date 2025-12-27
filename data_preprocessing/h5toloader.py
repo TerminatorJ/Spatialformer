@@ -17,8 +17,12 @@ import pickle
 import os
 import json
 import argparse
+from tqdm import tqdm
+import psutil
 from datasets import load_from_disk
 from torch.utils.data import ConcatDataset, Sampler, IterableDataset
+import gc
+import math
 # from .utils import uniform_quantile_global, binning
 current_file_path = Path(__file__).resolve()
 p_path = current_file_path.parents[1]
@@ -36,6 +40,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 class GeneExpressionDataset:
     def __init__(self, adata, data_path, gene_median_dir, token_dir, erda):
         self.adata = adata
+        self.adata_obs = adata.obs
         self.dataset = None
         self.train_dataset = None
         self.val_dataset = None
@@ -53,109 +58,146 @@ class GeneExpressionDataset:
         self.push_to_hub = False
         self.g_g_dict = adata.uns
         self.data_path = data_path
-        self.gene_median = gene_median_dir
-        self.data_name = data_path.split("/")[-1].split(".h5")[0]
+        self.gene_median_dir = gene_median_dir
+        self.data_name = data_path.split("/")[-1].split(".h5ad")[0]
         # import pdb; pdb.set_trace()
         if erda:
-            self.save_path = os.path.join("/tmp/erda/Spatialformer/downloaded_data/", "processed", self.data_name + "_" + "arrow")
+            self.save_path = os.path.join("/tmp/erda/Spatialformer/downloaded_data/", "processed", self.data_name + "_" + "arrow" + "_" + str(args.partition))
 
         else:
-            self.save_path = os.path.join(data_dir, self.data_name, "processed", self.data_name + "_" + "arrow")
+            parent_dir = os.path.dirname(self.data_path)
+            self.save_path = os.path.join(parent_dir, self.data_name + "_" + "arrow" + "_" + str(args.partition))
 
         
-    def define_all_tokens(self):
-
-        #define the data dictionary
-        Dictionary = namedtuple('Dictionary', ['symbols'])
-        special_tokens = ["<pad>", "<mask>", '<CLS>']
-        other_tokens = ['Human', 'Mouse', "Merfish", "Xenium", "Lung", "Healthy", "Disease"]
-        gene_tokens = list(self.ref_gene)
-        # import pdb; pdb.set_trace()
-        vocab = Dictionary(
-            symbols = special_tokens + other_tokens + gene_tokens,
-        )
-        self.token_indices = {token: idx for idx, token in enumerate(vocab.symbols)}
-        
-        with open(os.path.join(tokenizer_dir, "token.json"), 'w') as json_file:
-            json.dump(self.token_indices, json_file, indent=4)
     
     def adata_to_dict(self):
         data_list = []
-        for idx in range(self.adata.shape[0]):
+        for idx in tqdm(range(self.adata.shape[0]), desc="Converting AnnData to list of dicts"):
             exp = np.array(self.adata.X[idx]) if isinstance(self.adata.X[idx], np.matrix) else self.adata.X[idx]
-            split = self.adata.obs["Split"][idx]
             cell_id = self.adata.obs.index[idx]
             genes = self.adata.var["gene_name"].values
             
             data_list.append({
                 "Expression": exp.tolist(),
-                "Split": split,
                 "Cell_id": cell_id,
                 "Gene": genes.tolist()
             })
         return data_list
     
-    def run_in_batch(self, sample : DatasetDict) -> Dict:
+    def run_in_batch_vectorized(self, samples: Dict[str, List]):
         '''
-        The input is a batch of samples, which allows for faster preprocessing and storing the data.
-        This function is used to do the tokenization by predefined token dict along with the special tokens and the gene tokens.
+        Processes a batch of samples for tokenization and data preparation.
+        
+        The input 'samples' is a dictionary where each value is a list of 
+        data points for the batch (e.g., samples["Cell_id"] is a list of Cell_ids).
         '''
-        cell_id = sample["Cell_id"][0]
-        expr = sample["Expression"][0][0]
-        split = sample["Split"][0]
-        genes = np.array(sample["Gene"][0])
         
-        g_g = self.g_g_dict[cell_id].toarray()
+        batch_size = len(samples["Cell_id"])
         
-        #convert the nan to zeros
-        nonnan_expr = np.nan_to_num(expr, nan=0)
-        #get zero index
-        zero_index = np.where(nonnan_expr == 0)[0]
-        #filter the zeros and rank in descending way
-        sorted_gene_idx = np.argsort(-nonnan_expr)
-        sorted_gene_nonzero_idx = sorted_gene_idx[~np.isin(sorted_gene_idx,zero_index)]
-        #getting the descending genes
-        sorted_genes = genes[sorted_gene_nonzero_idx]
-        #get the sorted tokens
-        
-        sorted_tokens = list(map(lambda x: self.token_indices[x], sorted_genes))
-        #getting other tokens
-        #replace the name to token
-        # import pdb; pdb.set_trace()
-        add_tokens = list(map(lambda x: self.token_indices[self.adata.obs.loc[cell_id, x]], ["Conditions", "Tissues", "Species", "Assay"]))
-        # import pdb; pdb.set_trace()                
-        #concate all tokens
-        full_tokens = add_tokens + sorted_tokens
-        #get selected reference genes
-        selected_index = [np.where(self.ref_gene == g)[0][0] for g in sorted_genes]
-        # import pdb; pdb.set_trace()
-        #get the corresponding gene x gene
-        # import pdb; pdb.set_trace()
-        gene_gene_matrix = g_g[selected_index, :][:, selected_index]
-        
-        #preparing for storing
-        sorted_genes = np.expand_dims(sorted_genes, axis=0)
-        full_tokens = np.expand_dims(np.array(full_tokens), axis=0)
-        gene_gene_matrix = np.expand_dims(gene_gene_matrix, axis = 0)
-        cell_id = np.expand_dims(np.array(cell_id), axis = 0)
-        
-        output = {"Cell_Ids" : cell_id, "Ranked_Gene_Names" : sorted_genes, "Full_Tokens" : full_tokens, "Gene_Gene_Matrix": gene_gene_matrix}#array with variant lengths
+        # Initialize lists to store results for the entire batch
+        batch_cell_ids = []
+        batch_ranked_gene_names = []
+        batch_full_tokens = []
+        batch_row = []
+        batch_col = []
+        batch_data = []
+        batch_shape = []
+
+        # Iterate over each sample in the batch
+        for i in range(batch_size):
+            cell_id = samples["Cell_id"][i]
+            # Assuming Expression is structured as [ [expression_array] ]
+            expr = samples["Expression"][i][0]
+            genes = np.array(samples["Gene"][i])
+            
+            # 1. Gene-Gene Matrix (g_g)
+            g_g = self.g_g_dict[cell_id].toarray()
+            
+            # 2. Expression Filtering and Ranking
+            # convert the nan to zeros
+            nonnan_expr = np.nan_to_num(expr, nan=0)
+            # get zero index
+            zero_index = np.where(nonnan_expr == 0)[0]
+            # filter the zeros and rank in descending way
+            sorted_gene_idx = np.argsort(-nonnan_expr)
+            # Only keep indices that correspond to non-zero expression values
+            sorted_gene_nonzero_idx = sorted_gene_idx[~np.isin(sorted_gene_idx, zero_index)]
+            # getting the descending genes (names)
+            sorted_genes = genes[sorted_gene_nonzero_idx]
+            #make sure the genes are in the token list
+            sorted_genes = [g for g in sorted_genes if g in self.token_indices]
+            
+            # 3. Tokenization
+            # get the sorted tokens from gene names
+            sorted_tokens = list(map(lambda x: self.token_indices[x], sorted_genes))
+            
+            # getting other tokens (e.g., "Conditions", "Tissues", etc.)
+            add_tokens = list(map(
+                lambda x: self.token_indices[self.adata_obs.loc[cell_id, x]], 
+                ["Conditions", "Tissues", "Species", "Assay"]
+            ))             
+            # concatenate all tokens
+            full_tokens = add_tokens + sorted_tokens
+            
+            # 4. Gene-Gene Matrix Selection
+            # get selected reference genes indices
+            # Ensure 'self.ref_gene' is accessible and has been initialized (e.g., an array of all possible gene names)
+            # This part assumes that all genes in 'sorted_genes' are present in 'self.ref_gene'
+            selected_index = [np.where(self.ref_gene == g)[0][0] for g in sorted_genes]
+
+            # get the corresponding gene x gene sub-matrix
+            gene_gene_matrix = g_g[selected_index, :][:, selected_index]
+            del g_g
+            gc.collect()
+            #convert the gene_gene_matrix to sparse representation
+            rows, cols = np.nonzero(gene_gene_matrix)
+            data = gene_gene_matrix[rows, cols]
+            shape = gene_gene_matrix.shape
+            
+            
+            
+            # 5. Collect results for the current sample
+            # Note: We collect the raw NumPy arrays/lists/strings here. 
+            # The 'datasets' library will handle the final conversion/padding if needed.
+            batch_cell_ids.append(cell_id)
+            batch_ranked_gene_names.append(sorted_genes)
+            batch_full_tokens.append(np.array(full_tokens, dtype=np.int32)) # Use appropriate dtype for tokens
+            batch_row.append(rows)
+            batch_col.append(cols)
+            batch_data.append(data)
+            batch_shape.append(shape)
+            
+        # 6. Return the batch dictionary
+        # The output dict must contain lists/arrays of the collected results for all samples
+        output = {
+            "Cell_Ids": batch_cell_ids,
+            # Using ragged list/object dtype for variable length sequences
+            "Ranked_Gene_Names": batch_ranked_gene_names, 
+            "Full_Tokens": batch_full_tokens,
+            "Rows": batch_row,
+            "Cols": batch_col,
+            "Data": batch_data,
+            "Shape": batch_shape
+        }
+        process = psutil.Process()
+        print(f"Memory usage: {process.memory_info().rss / 1024 ** 3:.2f} GB")
         return output
     
-        
-        
-    
+
     def preprocess_data(self):
         logging.info(f"The data are undergoing preprocessing, it will take a couple minutes")
-        
         # Normalize by gene technique median
         # loading the overall gene median that has been calculated beforehand
-        # gene_technique_mean = [self.adata.X[:, i][self.adata.X[:, i].nonzero()[0]].median() for i in range(self.adata.shape[1])]
-        gene_median_dict = pickle.load(open("/home/sxr280/Spatialformer/data/Xenium_median_gene_final_exp.pkl", "rb"))
-        # import pdb; pdb.set_trace()
-        gene_technique_mean = [gene_median_dict[gene] for gene in self.adata.var["gene_name"].values]
-        # import pdb; pdb.set_trace()
-        self.adata.X = self.adata.X / np.array(gene_technique_mean)
+        logging.info(f"Genes are normalized by the non-zero median value")
+        gene_median_dict = pickle.load(open(self.gene_median_dir, "rb"))
+        
+        
+        # Vectorized normalization
+        gene_names = self.adata.var["gene_name"].values
+        gene_technique_median = np.array([
+        gene_median_dict.get(gene, 1) for gene in gene_names
+        ])
+        self.adata.X = self.adata.X / gene_technique_median
         # Normalize the cell to have 10,000 counts
         total_counts_per_cell = np.array(np.sum(self.adata.X, axis=1)).flatten()
         target_sum = 1e4
@@ -164,45 +206,32 @@ class GeneExpressionDataset:
             cell_sum = total_counts_per_cell[i]
             if cell_sum > 0:
                 normalized_expression[i, :] *= target_sum / cell_sum
-        # import pdb; pdb.set_trace()
         self.adata.X = normalized_expression
+        del normalized_expression
+        gc.collect()
         
-
         cell_ids = self.adata.obs.index
         #get the ranked gene(non-zero), and gene x gene interacrtion matrix filtered by the gene order
-        self.ref_gene = np.array(sorted(adata.var["gene_name"].unique()))
+        self.ref_gene = np.array(sorted(self.adata.var["gene_name"].unique()))
         #getting the token indices
-        # import pdb; pdb.set_trace()
-        if self.token_indices is None:
-            self.define_all_tokens()
         data_list = self.adata_to_dict()
         # Split the data
-        train_data = [d for d in data_list if d["Split"] == "train"]
-        test_data = [d for d in data_list if d["Split"] == "test"]
-        validation_data = [d for d in data_list if d["Split"] == "validation"]
-        # import pdb; pdb.set_trace()
-        # Create Hugging Face datasets
-        # import pdb; pdb.set_trace()
-        train_dataset = Dataset.from_list(train_data)
-        test_dataset = Dataset.from_list(test_data)
-        validation_dataset = Dataset.from_list(validation_data)
+        logging.info("Create Hugging Face datasets ...")
+
+        dataset = Dataset.from_list(data_list)
+        del data_list, self.adata
+        #delete the large variable
+        gc.collect()
         # Combine into a DatasetDict
-        dataset_dict = DatasetDict({
-            "train": train_dataset,
-            "test": test_dataset,
-            "validation": validation_dataset
-        })
-        # import pdb; pdb.set_trace()
-        tokenized_datasets = dataset_dict.map(self.run_in_batch, batched = True, batch_size = 1)
+        tokenized_datasets = dataset.map(self.run_in_batch_vectorized, batched = True, batch_size = 1) 
         tokenized_datasets.set_format("torch")
         # import pdb; pdb.set_trace()
-        # import pdb; pdb.set_trace()
+
         if len(cell_ids) < 100:
             pickle.dump(tokenized_datasets, open(self.save_path + ".pkl", "wb"))
         else:
             tokenized_datasets.save_to_disk(self.save_path)
         #split the dataset into train test validation
-        # import pdb; pdb.set_trace()
         if self.push_to_hub:
             tokenized_datasets.push_to_hub(f"{self.data_name}")
         return tokenized_datasets
@@ -305,21 +334,6 @@ def create_data_loaders(tokenized_datasets, cls_token = 1, sep_token = 1949,batc
                 full_exp[i,: v.size(0)] = v
             
 
-
-            # norm_exp = torch.full((len(ranked_exp), self.context_length), self.padding_idx, dtype=torch.float)
-            # try:
-            #     for i, e in enumerate(ranked_exp):
-            #         # import pdb; pdb.set_trace()
-            #         e = binning(
-            #             row=e,
-            #             n_bins=n_bins,
-            #         )
-
-            #         norm_exp[i,self.special_token_num:self.special_token_num+e.size(0)] = e
-            # except:
-            #     import pdb; pdb.set_trace()
-            #     pass
-
             # Pad sequences
             attention_masks = (full_tokens != self.padding_idx).bool()
             #token type ids
@@ -403,12 +417,13 @@ def get_pair_num(adata):
     
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='getting the dataloader for training the model')
-    parser.add_argument('--data_path', type=str, default="None", help='The name of the processed h5 dataset')
-    parser.add_argument('--gene_median_dir', type=str, default="/home/sxr280/Spatialformer/data/Xenium_median_gene_final_exp.pkl", help='The path of the gene technical median')
-    parser.add_argument('--token_dir', type=str, default="/home/sxr280/Spatialformer/tokenizer/tokenv2.json", help='The path of the token vocabulary')
+    parser.add_argument('--data_path', type=str, default="None", help='The name of the processed anndata dataset with .h5ad suffix')
+    parser.add_argument('--gene_median_dir', type=str, default="/scratch/project_465001820/Spatialformer/data/gene_median.pkl", help='The path of the gene technical median')
+    parser.add_argument('--token_dir', type=str, default="/scratch/project_465001820/Spatialformer/tokenizer/tokenv5.json", help='The path of the token vocabulary')
     parser.add_argument('--erda', action = 'store_true', help='Whether to store the data into the ERDA system')
-
-    # parser.add_argument('--data_name', type=str, default="None", help='The name of the raw dataset')
+    parser.add_argument('--partitions', type = int, default=1, help='The partitions number of the data')
+    parser.add_argument('--partition', type = int, default = None, help='The partition of the data')
+    parser.add_argument('--chunk', type = int, default = None, help='The chunk size of each partition')
     args = parser.parse_args()
 
     start_time = time.time()
@@ -416,19 +431,52 @@ if __name__ == "__main__":
     gene_median_dir = args.gene_median_dir
     token_dir = args.token_dir
     erda = args.erda
-    adata = sc.read_h5ad(data_path)
-    mean,median = get_pair_num(adata)
-    # import pdb; pdb.set_trace()
+    adata = sc.read_h5ad(data_path, backed='r')
+    # mean,median = get_pair_num(adata)
     
-    logging.info(f"The mean number of the gene pairs is:{mean}; the median is: {median}")
+    if args.chunk is not None:
+        if args.partitions == 1:
+
+            partitions = math.ceil(adata.n_obs / args.chunk)
+            logging.info(f"Running the partition {args.partition}/{partitions} with chunk size {args.chunk}")
+        else:
+            logging.info(f"Running the partition {args.partition}/{args.partitions} with chunk size {args.chunk}")
+            
+        # Start Index (0-indexed): chunk * (partition - 1)
+        start_idx = args.chunk * (args.partition - 1)
+
+        # End Index (exclusive): chunk * partition. Ensure it does not exceed the total number of observations.
+        end_idx = min(args.chunk * args.partition, adata.n_obs)
+
+        # Ensure the partition argument is valid
+        if start_idx >= adata.n_obs:
+            logging.warning(f"Partition {args.partition} is out of bounds (max index: {adata.n_obs-1}). Skipping.")
+            adata_flt = None # Or raise an error, depending on desired behavior
+        else:
+            # Slice the AnnData object using integer indices
+            # We use .X or .var_names to access the index directly when slicing
+            # Note: Slicing by index *numbers* is faster and safer than by .obs.index values
+            adata_flt = adata[start_idx:end_idx, :].to_memory() 
+            # Extract ONLY needed uns entries (gene-gene matrices for this chunk)
+            adata_flt.uns = {
+                key: adata.uns[key] 
+                for key in adata_flt.obs.index  # ✓ Only chunk's cell IDs
+                if key in adata.uns
+            }
+        #delete the large variable
+        del adata
+        gc.collect()
+        logging.info(f"Selected slice indices: [{start_idx}:{end_idx}] (Size: {end_idx - start_idx} observations)")
     
     
-    mydataset = GeneExpressionDataset(adata, data_path, gene_median_dir, token_dir, erda)
+        mydataset = GeneExpressionDataset(adata_flt, data_path, gene_median_dir, token_dir, erda)
+    else:
+        mydataset = GeneExpressionDataset(adata, data_path, gene_median_dir, token_dir, erda)
     tokenized_datasets = mydataset.preprocess_data()
     
     end_time = time.time()
     duration = end_time - start_time
-    logging.info(f"The dataloader has been generated. Time taken: {duration:.2f} seconds")
+    logging.info(f"The pyarrow data have been generated. Time taken: {duration:.2f} seconds")
 
 
 #demo

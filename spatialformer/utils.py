@@ -866,7 +866,6 @@ def binning(
     return torch.from_numpy(binned_row) if not return_np else binned_row.astype(dtype)
 
 
-
 def complete_masking(batch, p, n_tokens, cls_token, mask_token, sep_token, pad_token):
     '''
     This is used to mask the tokens for the mask language model head.
@@ -875,34 +874,28 @@ def complete_masking(batch, p, n_tokens, cls_token, mask_token, sep_token, pad_t
     # cls_token = 1
     # mask_token = 2
     
-
+    nomasked_token = 999
     indices = batch['indices']
-    # import pdb; pdb.set_trace()
-    # indices = torch.where(indices == 0, torch.tensor(padding_token), indices) # 0 is originally the padding token, we change it to 1
-    # batch['indices'] = indices
 
-    mask = 1 - torch.bernoulli(torch.ones_like(indices), p) # mask indices with probability p, represent mask as 0 (15%), 85% as 1, without padding tokens
+    mask = 1 - torch.bernoulli(torch.ones_like(indices), p) # mask indices with probability p, represent mask as 0 (15%), 85% as 1
     
-    # mask = torch.where(mask == 1, mask_token, mask)
     
     masked_indices = indices * mask # masked_indices, mute masked sites
     #embedding the mask token
     masked_indices = torch.where(masked_indices == 0, mask_token, masked_indices)
 
     masked_indices = torch.where(indices != pad_token, masked_indices, indices) # we just mask non-padding indices
-    mask = torch.where(indices == pad_token, torch.tensor(pad_token), mask) # the mask sequence with the padding tokens
-    # so we make the mask of all PAD tokens to be 1 so that it's not taken into account in the loss computation
-    # import pdb; pdb.set_trace()
+    mask = torch.where(indices == pad_token, nomasked_token, mask) # the mask sequence with the padding tokens
+    # so we make the mask of all PAD tokens to be 0 so that it's not taken into account in the loss computation
+
     # Notice for the following 2 lines that masked_indices has already not a single padding token masked
     masked_indices = torch.where(indices != cls_token, masked_indices, indices) # same with CLS, no CLS token can be masked
-    mask = torch.where(indices == cls_token, torch.tensor(pad_token), mask) # we change the mask so that it doesn't mask any CLS token
+    mask = torch.where(indices == cls_token, nomasked_token, mask) # we change the mask so that it doesn't mask any CLS token
     masked_indices = torch.where(indices != sep_token, masked_indices, indices) # same with SEP, no SEP token can be masked
-    mask = torch.where(indices == sep_token, torch.tensor(pad_token), mask) # we change the mask so that it doesn't mask any SEP token
+    mask = torch.where(indices == sep_token, nomasked_token, mask) # we change the mask so that it doesn't mask any SEP token
 
     #setting the 0 to the mask tokens
     mask = torch.where(mask == 0, mask_token, mask)
-
-    mask = torch.where(indices == pad_token, torch.tensor(pad_token), mask)
 
     # 80% of masked indices are masked
     # 10% of masked indices are a random token

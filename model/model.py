@@ -30,10 +30,11 @@ class SqueezeformerBlock(nn.Module):
                  drop_path=0.1,
                  activation='swish',
                  prenorm=True,
+                 flash_attn=False,
                  **kwargs):
         super().__init__(**kwargs)
         self.conv_blocks = nn.ModuleList([Conv1DBlock(dim,kernel_size,groups,1,1,conv_dropout,mlp_dropout,drop_path,conv_expand,activation,prenorm) for _ in range(num_conv_block)])
-        self.attn_blocks = nn.ModuleList([AltBlock(dim,num_heads,attn_expand,attn_dropout,mlp_dropout,drop_path,activation,prenorm) for _ in range(num_attn_block)])
+        self.attn_blocks = nn.ModuleList([AltBlock(dim,num_heads,attn_expand,attn_dropout,mlp_dropout,drop_path,activation,prenorm,flash_attn) for _ in range(num_attn_block)])
 
 
     def forward(self, inputs, mask=None, alibi_bias=None):
@@ -105,6 +106,7 @@ class SpaEncoder(nn.Module):
                  bpp_size=None,
                  bpp=True,
                  bpp_scale=None,
+                 flash_attn=False,
                  **kwargs):
         super().__init__(**kwargs)
         self.dim = dim

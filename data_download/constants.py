@@ -70,7 +70,7 @@ class GeneExpressionOmnibus:
 
 class DefaultPaths:
     """Default paths used for data storage."""
-    SPATIAL = "/tmp/erda/Spatialformer/downloaded_data"
+    SPATIAL = "/scratch/project_465001820/Spatialformer/data"
 
 
 class ObsConstants:

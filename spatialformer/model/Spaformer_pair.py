@@ -1,20 +1,31 @@
 import torch
 import torch.nn as nn
 import torch.nn.init as init
+import torch.nn.functional as F
 import pytorch_lightning as pl
-from typing import List
+from typing import List, Dict, Tuple, Optional, Any
 from torch import optim
 import numpy as np
 import math
+import torch.distributed as dist
 from spatialformer.utils import complete_masking, categorical_2d_masking
-from spatialformer.model import SpaEncoder
+from .model import SpaEncoder
 import pickle
 import os
-
 MASK_TOKEN = 2
 CLS_TOKEN = 1
 PAD_TOKEN = 0
+
 def to_cpu(data):
+    """
+    Recursively move data from GPU to CPU. 
+    
+    Args:
+        data: Input data (tensor, list, dict, or other)
+        
+    Returns:
+        Data moved to CPU with gradients detached
+    """
     if isinstance(data, torch.Tensor):
         return data.detach().cpu()
     elif isinstance(data, list):
@@ -23,6 +34,350 @@ def to_cpu(data):
         return {key: to_cpu(value) for key, value in data.items()}
     return data
 
+# class PairFocalLoss(nn.Module):
+#     def __init__(self, alpha=0.25, gamma=2.0):
+#         """
+#         Focal loss for handling class imbalance.
+#         alpha: weight for positive class (lower = downweight positives)
+#         gamma: focusing parameter (higher = focus on hard examples)
+#         """
+#         super().__init__()
+#         self.alpha = alpha
+#         self.gamma = gamma
+    
+#     def forward(self, logits, labels):
+#         """
+#         Args:
+#             logits: [batch_size, 2] - class logits
+#             labels: [batch_size] - class labels (0 or 1)
+#         """
+#         ce_loss = F.cross_entropy(logits, labels, reduction='none')
+        
+#         # Get probabilities
+#         probs = F.softmax(logits, dim=1)
+#         p_t = probs[range(len(labels)), labels]
+        
+#         # Focal weight
+#         focal_weight = (1 - p_t) ** self.gamma
+        
+#         # Alpha weighting (apply to positive class)
+#         alpha_t = torch.where(labels == 1, 
+#                              torch.tensor(self.alpha, device=labels.device),
+#                              torch.tensor(1-self.alpha, device=labels.device))
+        
+#         loss = alpha_t * focal_weight * ce_loss
+#         return loss.mean()
+
+
+class PairLoss_with_weight(nn.Module):
+    def __init__(self, pos_weight=None):
+        super().__init__()
+        if pos_weight is None:
+            pos_weight = [1.0, 3.0]
+        self._pos_weight = pos_weight
+    
+    def forward(self, logits, labels):
+        weight = torch.tensor(self._pos_weight, device=logits.device, dtype=logits.dtype)
+        labels = labels.to(dtype=torch.int64)
+        return F.cross_entropy(logits, labels, weight=weight)
+# class PairLoss(nn.Module):
+#     def __init__(self):
+#         '''
+#         calculating the binary cross entropy loss for the cell pairs
+#         '''
+#         super(PairLoss, self).__init__()
+#         self.loss = nn.CrossEntropyLoss()
+#     def forward(self, input: torch.Tensor, target: torch.Tensor):
+#         # import pdb; pdb.set_trace()
+#         target = target.long()
+#         loss = self.loss(input, target)
+#         return loss
+
+
+# class MaskedMSELoss(nn.Module):
+#     """
+#     Cross-entropy loss for masked language modeling (MLM).
+#     Only computes loss on masked tokens, ignoring special tokens.
+#     """
+    
+#     def __init__(self, mask_way: str = "MT", n_token: Optional[int] = None, 
+#                  cls_token: Optional[int] = None, sep_token: Optional[int] = None):
+#         """
+#         Args:
+#             mask_way: Masking strategy ("MT" for mask token, "ME" for mask expression)
+#             n_token: Total number of tokens in vocabulary
+#             cls_token: CLS token ID to ignore in loss
+#             sep_token: SEP token ID to ignore in loss
+#         """
+#         super(MaskedMSELoss, self).__init__()
+#         self.mask_way = mask_way
+#         self.n_token = n_token
+#         self.cls_token = cls_token
+#         self. sep_token = sep_token
+#         self.loss = nn.CrossEntropyLoss()
+
+#     def forward(self, input: torch.Tensor, target: torch.Tensor) -> torch. Tensor:
+#         """
+#         Compute MLM loss on masked tokens only.
+        
+#         Args:
+#             input: Predicted logits [batch_size * seq_len, vocab_size]
+#             target: Ground truth token IDs [batch_size * seq_len]
+#                    -100 indicates positions to ignore
+            
+#         Returns:
+#             Scalar loss value
+#         """
+#         # Mark special tokens to ignore in loss calculation
+#         target[(target == self.cls_token) | (target == self.sep_token)] = -100
+        
+#         try:
+#             loss = self.loss(input, target)
+#             if torch.isnan(loss) or torch.isinf(loss):
+#                 print("input:", input)
+#                 print("target:", target)
+#                 raise ValueError("Loss is NaN or Inf")
+#         except:
+#             print("Loss computation failed, assigning default loss value.")
+#             loss = torch.tensor(5.0, device=input.device)
+#         return loss
+
+class AdjacencyProjector(nn.Module):
+    """
+    Low-rank bilinear projection for predicting gene-gene adjacency matrices.
+    Computes block-diagonal adjacency for paired sequences.
+    Returns blocks instead of full dense matrix to save memory.
+    """
+    
+    def __init__(self, embedding_dim: int, rank: int = 128):
+        """
+        Args:
+            embedding_dim: Dimension of input embeddings
+            rank: Rank of bilinear form (lower rank = fewer parameters)
+        """
+        super(AdjacencyProjector, self).__init__()
+        self.embedding_dim = embedding_dim
+        self.rank = rank
+        
+        # Low-rank bilinear projection
+        self.project_i = nn.Linear(embedding_dim, rank, bias=False)
+        self.project_j = nn.Linear(embedding_dim, rank, bias=False)
+    
+    def forward(self, E: torch.Tensor, seq_lengths: torch.Tensor) -> Dict[str, Any]:
+        """
+        Compute block-diagonal adjacency matrix for variable-length sequences.
+        
+        Args:
+            E: Padded embeddings [batch_size, max_seq_len, embedding_dim]
+            seq_lengths: Actual sequence lengths [batch_size, 2]
+                        where seq_lengths[i] = [len1, len2] for sample i
+        
+        Returns:
+            dict with:
+                - 'block1_list': List of [L1, L1] tensors for sequence 1
+                - 'block2_list': List of [L2, L2] tensors for sequence 2
+                - 'seq_lengths': Original sequence lengths [batch_size, 2]
+                - 'batch_size': B
+        """
+        B, L_max, dim = E.shape
+        device = E.device
+        
+        # Project to interaction space
+        E_i = self.project_i(E)  # [B, L_max, rank]
+        E_j = self.project_j(E)  # [B, L_max, rank]
+        
+        # Compute blocks for each sample
+        block1_list = []
+        block2_list = []
+
+        for b in range(B):
+            L1 = seq_lengths[b, 0].item()
+            L2 = seq_lengths[b, 1].item()
+
+            # Block 1: sequence 1 self-adjacency [L1, L1]
+            if L1 > 0:
+                block1 = torch.mm(
+                    E_i[b, :L1, :],      # [L1, rank]
+                    E_j[b, :L1, :]. T     # [rank, L1]
+                )  # [L1, L1]
+
+                block1_list.append(block1)
+            else:
+                # Empty block
+                block1_list.append(torch.zeros(0, 0, device=device, dtype=E.dtype))
+            
+            # Block 2: sequence 2 self-adjacency [L2, L2]
+            if L2 > 0:
+                start = L1
+                end = L1 + L2
+                block2 = torch.mm(
+                    E_i[b, start:end, :],  # [L2, rank]
+                    E_j[b, start:end, :].T # [rank, L2]
+                )  # [L2, L2]
+
+                block2_list.append(block2)
+            else:
+                # Empty block
+                block2_list.append(torch.zeros(0, 0, device=device, dtype=E.dtype))
+
+        return {
+            'block1_list': block1_list,
+            'block2_list': block2_list,
+            'seq_lengths': seq_lengths,
+            'batch_size': B
+        }
+
+class MaskedMSE2DLoss(nn.Module):
+    """
+    Focal loss for binary adjacency matrix prediction. 
+    Handles class imbalance in sparse adjacency matrices.
+    Works with block representations instead of full dense matrices.
+    """
+    
+    def __init__(self, alpha: float = 0.25, gamma: float = 2.0, reduction: str = 'mean'):
+        """
+        Args:
+            alpha: Weighting factor for positive class (0-1)
+            gamma: Focusing parameter (higher = more focus on hard examples)
+            reduction: Loss reduction method ('mean' or 'sum')
+        """
+        super(MaskedMSE2DLoss, self).__init__()
+        self.alpha = alpha
+        self.gamma = gamma
+        self.reduction = reduction
+    
+    def forward(self, pred_blocks: Dict[str, Any], target: torch.Tensor) -> torch.Tensor:
+        """
+        Compute focal loss for adjacency prediction using block representation.
+        
+        Args:
+            pred_blocks: Dict from AdjacencyProjector. forward() with:
+                - 'block1_list': List of predicted blocks for sequence 1
+                - 'block2_list': List of predicted blocks for sequence 2
+                - 'seq_lengths': [batch_size, 2]
+                - 'batch_size': B
+            target: Ground truth adjacency [batch_size, max_seq_len, max_seq_len]
+                   Can be sparse or dense
+        
+        Returns:
+            Scalar loss value
+        """
+        block1_list = pred_blocks['block1_list']
+        block2_list = pred_blocks['block2_list']
+        seq_lengths = pred_blocks['seq_lengths']
+        B = pred_blocks['batch_size']
+        total_loss = 0
+        total_elements = 0
+        
+        for b in range(B):
+            L1 = seq_lengths[b, 0].item()
+            L2 = seq_lengths[b, 1].item()
+            # Get ground truth for this sample
+            gt_sample = target[b]
+            if gt_sample.is_sparse:
+                gt_sample = gt_sample.to_dense()
+
+            # Process Block 1
+            if L1 > 0:
+                pred_block1 = block1_list[b]  # [L1, L1]
+                gt_block1 = gt_sample[:L1, :L1]  # [L1, L1]
+                
+                loss1, n1 = self._compute_focal_loss(pred_block1, gt_block1)
+                total_loss += loss1
+                total_elements += n1
+
+            # Process Block 2
+            if L2 > 0:
+                pred_block2 = block2_list[b]  # [L2, L2]
+                start = L1
+                end = L1 + L2
+                gt_block2 = gt_sample[start:end, start:end]  # [L2, L2]
+                
+                loss2, n2 = self._compute_focal_loss(pred_block2, gt_block2)
+                total_loss += loss2
+                total_elements += n2
+        # Reduce
+        if total_elements == 0:
+            return torch. tensor(0.0, device=target.device, requires_grad=True)
+        
+        if self.reduction == 'mean':
+            return total_loss / total_elements
+        elif self.reduction == 'sum':
+            return total_loss
+        else:
+            return total_loss
+    
+    def _compute_focal_loss(self, pred: torch.Tensor, target: torch.Tensor) -> Tuple[torch.Tensor, int]:
+        """
+        Compute focal loss for a single block. 
+        
+        Args:
+            pred: Predicted logits [H, W]
+            target: Ground truth [H, W]
+        
+        Returns:
+            loss: Summed focal loss for this block
+            num_elements: Number of elements in this block
+        """
+        if pred.numel() == 0:
+            return torch.tensor(0.0, device=pred.device), 0
+        
+        # Flatten
+        pred_flat = pred.reshape(-1)
+        target_flat = target. reshape(-1). float()
+        
+        # Compute binary cross-entropy
+        bce_loss = F.binary_cross_entropy_with_logits(
+            pred_flat, 
+            target_flat, 
+            reduction='none'
+        )
+        
+        # Compute focal loss components
+        probs = torch.sigmoid(pred_flat)
+        p_t = probs * target_flat + (1 - probs) * (1 - target_flat)
+        focal_weight = (1 - p_t) ** self.gamma
+        alpha_t = self.alpha * target_flat + (1 - self. alpha) * (1 - target_flat)
+        
+        # Final focal loss
+        focal_loss = alpha_t * focal_weight * bce_loss
+        
+        return focal_loss.sum(), pred_flat.numel()
+
+# class GraphSAGESpatialEmbedding(nn.Module):
+#     """
+#     Pretrained GraphSAGE spatial embeddings for genes.
+#     Loads pretrained embeddings and adds a random embedding for CLS token.
+#     """
+    
+#     def __init__(self, freeze: bool, embedding_path: str):
+#         """
+#         Args:
+#             freeze: Whether to freeze pretrained embeddings during training
+#             embedding_path: Path to pretrained embedding file (. pkl)
+#         """
+#         super().__init__()
+#         current_file = os.path.abspath(__file__)
+#         pretrained_weights = pickle.load(open(embedding_path, "rb"))
+        
+#         # Add random embedding for CLS token
+#         num_features = pretrained_weights. shape[1]
+#         new_row = torch.randn(1, num_features)
+#         updated_weights = torch.cat((pretrained_weights, new_row), dim=0)
+        
+#         self.emb = nn.Embedding.from_pretrained(updated_weights, freeze=freeze)
+
+#     def forward(self, x: torch.Tensor) -> torch. Tensor:
+#         """
+#         Get spatial embeddings for token IDs.
+        
+#         Args:
+#             x: Token IDs [batch_size, seq_len]
+            
+#         Returns:
+#             Spatial embeddings [batch_size, seq_len, embedding_dim]
+#         """
+#         return self.emb(x)
 
 class PairLoss(nn.Module):
     def __init__(self):
@@ -68,94 +423,89 @@ class MaskedMSELoss(nn.Module):
             loss = torch.tensor(5, device=input.device)
         return loss
     
-class MaskedMSE2DLoss(nn.Module):
-    def __init__(self, sample_balance = False):
-        super(MaskedMSE2DLoss, self).__init__()
-        self.sample_balance = sample_balance
+# class MaskedMSE2DLoss(nn.Module):
+#     def __init__(self, sample_balance = False):
+#         super(MaskedMSE2DLoss, self).__init__()
+#         self.sample_balance = sample_balance
 
-    def even_sample(self, pred, target):
-        # Flatten matrices for easier indexing
-        predictions_flat = pred.view(-1)
-        true_labels_flat = target.reshape(-1)
+#     def even_sample(self, pred, target):
+#         # Flatten matrices for easier indexing
+#         predictions_flat = pred.view(-1)
+#         true_labels_flat = target.reshape(-1)
         
-        # Identify positive and negative indices
-        positive_indices = (true_labels_flat == 1).nonzero(as_tuple=True)[0]
-        negative_indices = (true_labels_flat == 0).nonzero(as_tuple=True)[0]
+#         # Identify positive and negative indices
+#         positive_indices = (true_labels_flat == 1).nonzero(as_tuple=True)[0]
+#         negative_indices = (true_labels_flat == 0).nonzero(as_tuple=True)[0]
         
-        # Sample indices
-        num_samples = min(len(positive_indices), len(negative_indices))
-        selected_pos_indices = torch.randperm(len(positive_indices))[:num_samples]
-        selected_neg_indices = torch.randperm(len(negative_indices))[:num_samples]
+#         # Sample indices
+#         num_samples = min(len(positive_indices), len(negative_indices))
+#         selected_pos_indices = torch.randperm(len(positive_indices))[:num_samples]
+#         selected_neg_indices = torch.randperm(len(negative_indices))[:num_samples]
 
-        sampled_indices = torch.cat((positive_indices[selected_pos_indices], negative_indices[selected_neg_indices]))
+#         sampled_indices = torch.cat((positive_indices[selected_pos_indices], negative_indices[selected_neg_indices]))
         
-        # Calculate loss using sampled indices
-        sampled_predictions = predictions_flat[sampled_indices]
-        sampled_true_labels = true_labels_flat[sampled_indices]
-        return sampled_predictions, sampled_true_labels
+#         # Calculate loss using sampled indices
+#         sampled_predictions = predictions_flat[sampled_indices]
+#         sampled_true_labels = true_labels_flat[sampled_indices]
+#         return sampled_predictions, sampled_true_labels
 
 
-    def forward(self, input: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
-        # Here, the mask represents the masked tokens (with value != -100)
-        # import pdb; pdb.set_trace()
+#     def forward(self, input: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+#         # Here, the mask represents the masked tokens (with value != -100)
+#         # import pdb; pdb.set_trace()
 
-        # Ensure valid_target is in the correct shape for gather
-        if self.sample_balance:
-            valid_input, valid_target = self.even_sample(input, target)
-            mask_num = len(valid_target)
-            try:
-                spa_loss = F.binary_cross_entropy_with_logits(valid_input, valid_target.float(), reduction='mean')
-                # spa_loss = loss / mask_num
-                if torch.isnan(spa_loss) or torch.isinf(spa_loss):
-                    print("valid_input:", valid_input)
-                    print("valid_target:", valid_target)
-                    raise ValueError("Loss is NaN or Inf")
-            except:
-                print("Loss computation failed, assigning default loss value.")
-                spa_loss = torch.tensor(0.5, device=valid_input.device)
+#         # Ensure valid_target is in the correct shape for gather
+#         if self.sample_balance:
+#             valid_input, valid_target = self.even_sample(input, target)
+#             mask_num = len(valid_target)
+#             try:
+#                 spa_loss = F.binary_cross_entropy_with_logits(valid_input, valid_target.float(), reduction='mean')
+#                 # spa_loss = loss / mask_num
+#                 if torch.isnan(spa_loss) or torch.isinf(spa_loss):
+#                     raise ValueError("Loss is NaN or Inf")
+#             except:
+#                 print("Loss computation failed, assigning default loss value.")
+#                 spa_loss = torch.tensor(0.5, device=valid_input.device)
 
-        return spa_loss
+#         return spa_loss
     
 
 
 
     
-class AdjacencyProjector(nn.Module):
-    def __init__(self, embedding_dim):
-        super(AdjacencyProjector, self).__init__()
-        # Assume output dimension of 1 because we want a single score
-        self.fc = nn.Linear(2 * embedding_dim, 1, bias=False)
+# class AdjacencyProjector(nn.Module):
+#     def __init__(self, embedding_dim):
+#         super(AdjacencyProjector, self).__init__()
+#         # Assume output dimension of 1 because we want a single score
+#         self.fc = nn.Linear(2 * embedding_dim, 1, bias=False)
 
-    def forward(self, E):
-        #B x L X dim
-        num_genes = E.size(1)
-        # Create pairwise combinations
-        E_i = E.unsqueeze(2).expand(-1, -1, num_genes, -1)##B X L X L X dim
-        E_j = E.unsqueeze(1).expand(-1, num_genes, -1, -1)##B X L X L X dim
-        pairs = torch.cat((E_i, E_j), dim=-1)
+#     def forward(self, E):
+#         #B x L X dim
+#         num_genes = E.size(1)
+#         # Create pairwise combinations
+#         E_i = E.unsqueeze(2).expand(-1, -1, num_genes, -1)##B X L X L X dim
+#         E_j = E.unsqueeze(1).expand(-1, num_genes, -1, -1)##B X L X L X dim
+#         pairs = torch.cat((E_i, E_j), dim=-1)
         
-        # Compute adjacency scores
-        adjacency_scores = self.fc(pairs).squeeze(-1)#B x L X L
-        return adjacency_scores
+#         # Compute adjacency scores
+#         adjacency_scores = self.fc(pairs).squeeze(-1)#B x L X L
+#         return adjacency_scores
 
 
 class GraphSAGESpatialEmbedding(nn.Module):
     def __init__(self, freeze, embedding_path):
         super().__init__()
-        current_file = os.path.abspath(__file__)
-        embedding_path = os.path.join(os.path.dirname(current_file), "..", "spatial_embeddings", "gene_embeddings_GraphSAGE_pandavid.pkl")
         pretrained_weights = pickle.load(open(embedding_path, "rb"))
-        
         #adding the cls random value
         num_features = pretrained_weights.shape[1]
 
         # Generate a new random row with the same number of columns
         new_row = torch.randn(1, num_features)  # Shape will be (1, 512)
-
+        # import pdb; pdb.set_trace()
         # Concatenate the new row to the existing tensor along axis 0 (rows)
-        updated_weights = torch.cat((pretrained_weights, new_row), dim=0)
-        self.emb = nn.Embedding.from_pretrained(updated_weights, freeze=freeze)
-        # print("require grad:", self.emb.weight.requires_grad)
+        # updated_weights = torch.cat((pretrained_weights, new_row), dim=0)
+        # import pdb; pdb.set_trace()
+        self.emb = nn.Embedding.from_pretrained(pretrained_weights, freeze=freeze)
 
     def forward(self, x):
         return self.emb(x)
@@ -171,17 +521,18 @@ class Spaformer(pl.LightningModule):
                  masking_p: float, 
                  n_tokens: int,
                  n_atokens: int,
-                 context_length: int,
                  lr: float, 
                  warmup: int, 
                  max_epochs: int,
+                 context_length: int = 500,
                  pool: str = None,
-                 bpp: bool = True,
+                 bpp: bool = False,
                  bpp_scale: int = None,
                  ag_loss: bool = False,
                  mask_way: str = None,
                  outer_config: dict = None,
-                 
+                 use_flash_attn: bool = False,
+                 **kwargs
                  ):
         """
         Args:
@@ -196,10 +547,23 @@ class Spaformer(pl.LightningModule):
             max_epochs (int): number of steps until the learning rate reaches 0
             pool (str): could be None, 'cls' or 'mean'. CLS adds a token at the beginning, mean just averages all tokens. If not supervised task during training, is ignored
             outer_config (dict): the overall config of the model for training
+            use_flash_attn (bool): whether to use flash attention for transformer layers
         """
         super().__init__()
         # self.batch_length = None
-        self.encoder = SpaEncoder(dim=dim_model , num_layers=nlayers, groups=dim_model, num_heads=nheads, bpp_size = context_length, bpp = bpp, bpp_scale=bpp_scale)
+        # print("effective_batch_size:", effective_batch_size)
+        if outer_config["input_type"] == "pair":
+            effective_batch_size = outer_config["batch_size"]*(outer_config["num_positives_per_query"]+outer_config["num_hard_negatives_per_query"]+outer_config["num_easy_negatives_per_query"])
+        elif outer_config["input_type"] == "single":
+            effective_batch_size = outer_config["batch_size"]
+        self.encoder = SpaEncoder(dim=dim_model , 
+                                  num_layers=nlayers, 
+                                  groups=dim_model, 
+                                  num_heads=nheads, 
+                                  bpp_size = context_length, 
+                                  bpp = bpp, 
+                                  bpp_scale=bpp_scale, 
+                                  flash_attn=use_flash_attn)
         # As in HuggingFace
         # The prediction head for each masked token
         self.classifier_head = nn.Linear(dim_model, n_tokens+n_atokens, bias=False)
@@ -223,11 +587,18 @@ class Spaformer(pl.LightningModule):
 
         if pool == 'cls':
             context_length += 1
-
         # MLM loss
         self.MEloss = MaskedMSELoss(mask_way = mask_way, n_token = n_tokens+n_atokens, cls_token = outer_config["cls_token"], sep_token = outer_config["sep_token"])#masked token loss
-        self.MDloss = MaskedMSE2DLoss(sample_balance = True)
-        self.Pairloss = PairLoss()
+        #Remark
+        # self.MDloss = MaskedMSE2DLoss(sample_balance = True)
+        self.MDloss = MaskedMSE2DLoss()
+
+        #pair loss with/wighout imbalance
+        if outer_config["num_positives_per_query"] / (outer_config["num_hard_negatives_per_query"]+outer_config["num_easy_negatives_per_query"]) == 1:
+            self.Pairloss = PairLoss()
+        else:
+            weight = (outer_config["num_hard_negatives_per_query"]+outer_config["num_easy_negatives_per_query"])/outer_config["num_positives_per_query"]
+            self.Pairloss = PairLoss_with_weight(torch.tensor([1, weight]))
             
         self.save_hyperparameters()
         #initialize as 0 to get better proformance, to homoscedastic uncertainty
@@ -235,13 +606,9 @@ class Spaformer(pl.LightningModule):
         self.log_sigma_reg1 = None    # Log variance for regression
         self.log_sigma_reg2 = None
         self.log_sigma_reg3 = None
+    
+    
         
-
-        self.gc_freq = 5
-        
-        self.batch_train_losses = []
-        
-        self.batch_input = {}
         self.total_tokens = 0
         self.adjmtx = None
         self.attentions = None
@@ -256,61 +623,41 @@ class Spaformer(pl.LightningModule):
         self.pad_token = outer_config["pad_token"]
         self.sep_token = outer_config["sep_token"]
         self.cls_token = outer_config["cls_token"]
+        self.input_type = outer_config["input_type"]
         self.dim_model = dim_model
         self.nlayers = nlayers
         self.nheads = nheads
         self.bpp = bpp
         self.bpp_scale = bpp_scale
+        self.running_max_len = 0
 
 
 
-        
-        
-    # def set_variable_length(self, new_batch_length):
-    #     # Reinitialize the encoder with the new batch_length
-    #     self.encoder = SpaEncoder(
-    #         dim=self.dim_model,
-    #         num_layers=self.nlayers,
-    #         groups=self.dim_model,
-    #         num_heads=self.nheads,
-    #         bpp_size=new_batch_length,
-    #         bpp=self.bpp,
-    #         bpp_scale=self.bpp_scale
-    #     )
-    #     self.encoder.to(self.device)
 
             
-    def forward(self, x, adjmtx, attention_mask, token_type_ids, **kwargs):
-        # x = x.to(self.device)
-        # adjmtx = adjmtx.to(self.device)
-        # attention_mask = attention_mask.to(self.device)
-        # token_type_ids = token_type_ids.to(self.device)
-        # x -> size: batch x (context_length) x 1
-        # import pdb; pdb.set_trace()
-        # adjmtx = torch.cat(adj_left, adj_right)
+    def forward(self, x, adjmtx, attention_mask, token_type_ids, sequence_length, **kwargs):
+
         token_embedding = self.embeddings(x) # batch x (context_length) x dim_model
         #adding the token type embeddings
         #get the first sep site
-
+        if token_embedding.shape[1] > self.running_max_len:
+            self.running_max_len = token_embedding.shape[1]
+            print(f"running max length: {self.running_max_len}")
         token_embedding += self.token_type_embeddings(token_type_ids)
         if self.outer_config["spatial_embedding"]:
             token_embedding += self.spatialembeds(x)
-        
-        # import pdb; pdb.set_trace()
-        # print("self.encoder device:", self.encoder.device)
-        # print("token_embedding device:", token_embedding.device)
-        # print("attention_mask device:", attention_mask.device)
-        # print("adjmtx device:", adjmtx.device)
-        # import pdb; pdb.set_trace()
-        
+
         transformer_output, attn_scores = self.encoder(token_embedding, False, attention_mask) # batch x (n_tokens) x dim_model
-        # import pdb; pdb.set_trace()
         #get the last layer of the model output
         prediction = self.classifier_head(transformer_output[-1])
         #get the pair-wise gene-gene interaction matrix
-        dis_prediction = self.adjprojector(token_embedding)
+        #Remark
+        dis_prediction = self.adjprojector(transformer_output[-1], sequence_length)
         self.attentions = attn_scores
-        pair_prediction = self.pair_head(transformer_output[-1][:,0]) # the first token embeddings as input and predict whether two cells are paired
+        if self.input_type == "pair":
+            pair_prediction = self.pair_head(transformer_output[-1][:,0]) # the first token embeddings as input and predict whether two cells are paired
+        elif self.input_type == "single":
+            pair_prediction = None
 
         return {'mlm_prediction': prediction,
                 'pair_prediction': pair_prediction,
@@ -378,23 +725,23 @@ class Spaformer(pl.LightningModule):
         return accuracy
     
     def training_step(self, batch, batch_idx, *args, **kwargs):
+        # import pdb; pdb.set_trace()
         #skip the None batch, which means the gene-gene matrix is sum as 0
         torch.cuda.synchronize()
         attention_mask = batch['attention_mask']
         batch['adjmtx'] = batch['adjmtx'].to(self.device)
         batch['indices'] = batch['indices'].to(self.device)
-        batch["pair_label"] = batch["pair_label"].to(self.device)
+        if self.input_type == "pair":
+            batch["pair_label"] = batch["pair_label"].to(self.device)
+            pos_num = (batch["pair_label"] == 1).sum().to(torch.float32)
+            neg_num = (batch["pair_label"] == 0).sum().to(torch.float32)
+            self.log(f'train_num_positives', pos_num, sync_dist=True, prog_bar=False, reduce_fx='sum')
+            self.log(f'train_num_negatives', neg_num, sync_dist=True, prog_bar=False, reduce_fx='sum')
         batch['attention_mask'] = batch['attention_mask'].to(self.device)
         batch["token_type_ids"] = batch["token_type_ids"].to(self.device)
-        # import pdb; pdb.set_trace()
-        # mem_before = torch.cuda.memory_allocated()
-        # total_memory = torch.cuda.get_device_properties(0).total_memory
-        # used_memory = torch.cuda.memory_reserved() 
-        # length = batch["indices"].shape[1]
-        # print(f"Allocated Memory before: {mem_before / 1e6:.2f} MB")  # Convert to MB
-        # print(f"Total Memory before: {total_memory / 1e6:.2f} MB")  # Convert to MB
-        # print(f"Used Memory before: {used_memory / 1e6:.2f} MB") 
-        # print(f"batch variable length: {length}")
+        batch["sequence_length"] = batch["sequence_length"].to(self.device)
+
+        
         # Training code
         if batch is not None:
             try:
@@ -411,12 +758,10 @@ class Spaformer(pl.LightningModule):
                     log_sigma_mlm = getattr(self, f'log_sigma_reg1')[0]
                     self.log(f'log_sigma_reg(normalized_exp)', log_sigma_mlm, sync_dist=True, prog_bar=True, reduce_fx='mean')
                     total_loss += (torch.exp(-log_sigma_mlm) * MLM_loss + log_sigma_mlm) ##
-                    # import pdb; pdb.set_trace()
                     #for spatial minibatch, including gene and cell spatial info
                     spa_batch = mini_batch_list[-1]
                     #for spatial jobs
                     spa_predictions, adjmtx, pair_predictions, pair_label = self.predict_spa(spa_batch)
-                    # import pdb; pdb.set_trace()
                     Spa_loss = self.MDloss(spa_predictions, adjmtx)# spatial loss
                     Pair_loss = self.Pairloss(pair_predictions, pair_label) #Paired loss
                     self.log(f'train_Pair_loss', Pair_loss, sync_dist=True, prog_bar=True, reduce_fx='mean')
@@ -434,27 +779,24 @@ class Spaformer(pl.LightningModule):
                 else:
                     #no minibatch  
                     total_loss = torch.tensor(0, dtype=torch.float, device=self.device)
-                    # import pdb; pdb.set_trace()
                     #for mlm minibatch
-                    batch = complete_masking(batch, self.hparams.masking_p, self.hparams.n_tokens, self.cls_token, self.mask_token, self.sep_token, self.pad_token) #for mask expression prediction
+                    batch = complete_masking(batch, self.hparams.masking_p, self.hparams.n_tokens, self.cls_token, self.mask_token, self.sep_token, self.pad_token) #for mask token prediction
                     mlm_predictions, real_indices, spa_predictions, pair_predictions, pair_label, adjmtx = self.predict_exp(batch, "normalized_exp") #different task means different targets here
                     MLM_loss = self.MEloss(mlm_predictions, real_indices) # MLM loss
                     self.log(f'train_MLM_loss(normalized_exp)', MLM_loss, sync_dist=True, prog_bar=False, reduce_fx='mean')
                     log_sigma_mlm = getattr(self, f'log_sigma_reg1')[0]
                     self.log(f'log_sigma_reg(normalized_exp)', log_sigma_mlm, sync_dist=True, prog_bar=True, reduce_fx='mean')
                     total_loss += (torch.exp(-log_sigma_mlm) * MLM_loss + log_sigma_mlm) ##
-                    # import pdb; pdb.set_trace()
-                    # import pdb; pdb.set_trace()
                     Spa_loss = self.MDloss(spa_predictions, adjmtx)# spatial loss
-                    Pair_loss = self.Pairloss(pair_predictions, pair_label) #Paired loss
-                    self.log(f'train_Pair_loss', Pair_loss, sync_dist=True, prog_bar=True, reduce_fx='mean')
-                    accuracy = self.get_acc(pair_predictions, pair_label)
-                    self.log(f'train_pair_accuracy', accuracy, sync_dist=True, prog_bar=True, reduce_fx='mean')
-                    log_sigma_pair = getattr(self, f'log_sigma_reg2')[0]
-                    self.log(f'log_sigma_reg(pair)', log_sigma_pair, sync_dist=True, prog_bar=True, reduce_fx='mean')
-                    total_loss += (torch.exp(-log_sigma_pair) * Pair_loss * self.linear_schedule_for_scale() + log_sigma_pair)
-                    # total_loss += 2 * Pair_loss
-                    # import pdb; pdb.set_trace()
+                    if self.input_type == "pair":
+                        Pair_loss = self.Pairloss(pair_predictions, pair_label) #Paired loss
+                        self.log(f'train_Pair_loss', Pair_loss, sync_dist=True, prog_bar=True, reduce_fx='mean')
+                        accuracy = self.get_acc(pair_predictions, pair_label)
+                        self.log(f'train_pair_accuracy', accuracy, sync_dist=True, prog_bar=True, reduce_fx='mean')
+                        log_sigma_pair = getattr(self, f'log_sigma_reg2')[0]
+                        self.log(f'log_sigma_reg(pair)', log_sigma_pair, sync_dist=True, prog_bar=True, reduce_fx='mean')
+                        total_loss += (torch.exp(-log_sigma_pair) * Pair_loss + log_sigma_pair)
+
                     self.log('train_Spa_loss', Spa_loss, sync_dist=True, prog_bar=False, reduce_fx='mean')
                     total_loss += (torch.exp(-self.log_sigma_class[0]) * Spa_loss * self.linear_schedule_for_scale() + self.log_sigma_class[0]) ##
                     self.log('log_sigma_class', self.log_sigma_class[0], sync_dist=True, prog_bar=True, reduce_fx='mean')
@@ -467,15 +809,7 @@ class Spaformer(pl.LightningModule):
 
                 self.total_tokens += attention_mask.sum()
                 self.log('total_tokens', self.total_tokens, prog_bar=True, sync_dist=True, reduce_fx='sum')
-            
-                # mem_after = torch.cuda.memory_allocated()
-                # print(f"GPU memory usage: {mem_before/1e9} GB -> {mem_after/1e9} GB") 
-                # mem_after = torch.cuda.memory_allocated()
-                # total_memory = torch.cuda.get_device_properties(0).total_memory
-                # used_memory = torch.cuda.memory_reserved() 
-                # print(f"Allocated Memory after: {mem_after / 1e6:.2f} MB")  # Convert to MB
-                # print(f"Total Memory after: {total_memory / 1e6:.2f} MB")  # Convert to MB
-                # print(f"Used Memory after: {used_memory / 1e6:.2f} MB") 
+
                 self.last_train_loss = total_loss.item()  
                 
                 # Check for NaN loss
@@ -483,15 +817,12 @@ class Spaformer(pl.LightningModule):
                     encoder_state_dict = self.encoder.state_dict()
                     encoder_state_dict_cpu = {k: v.cpu() for k, v in encoder_state_dict.items()}
                     torch.save(encoder_state_dict, "/scratch/project_465001027/Spatialformer/data/encoder_state_dict.pth")
-                # if torch.isnan(total_loss).any():
                 #     #save everything
                     pickle.dump(to_cpu(batch), open("/scratch/project_465001027/Spatialformer/data/nanbatch.pkl", "wb"))
-                    pickle.dump(to_cpu(mini_batch_list), open("/scratch/project_465001027/Spatialformer/data/minibatchlist.pkl", "wb"))
                     pickle.dump(to_cpu(mlm_predictions), open("/scratch/project_465001027/Spatialformer/data/mlm_predictions.pkl", "wb"))
                     pickle.dump(to_cpu(real_indices), open("/scratch/project_465001027/Spatialformer/data/real_indices.pkl", "wb"))
                     pickle.dump(to_cpu(attention_mask), open("/scratch/project_465001027/Spatialformer/data/attention_mask.pkl", "wb"))
                     pickle.dump(to_cpu(MLM_loss), open("/scratch/project_465001027/Spatialformer/data/MLM_loss.pkl", "wb"))
-                    # pickle.dump(to_cpu(log_sigma), open("/scratch/project_465001027/Spatialformer/data/log_sigma.pkl", "wb"))
                     pickle.dump(to_cpu(spa_predictions), open("/scratch/project_465001027/Spatialformer/data/spa_predictions.pkl", "wb"))
                     pickle.dump(to_cpu(adjmtx), open("/scratch/project_465001027/Spatialformer/data/adjmtx.pkl", "wb"))
                     pickle.dump(to_cpu(Spa_loss), open("/scratch/project_465001027/Spatialformer/data/Spa_loss.pkl", "wb"))
@@ -506,12 +837,6 @@ class Spaformer(pl.LightningModule):
         else:
 
             return
-
-
-
-       
-
-             
 
 
     def linear_schedule_for_scale(self, num_stagnant_steps=100):
@@ -533,9 +858,7 @@ class Spaformer(pl.LightningModule):
         div = self.outer_config["n_tasks"]
         batch_size = batch["indices"].shape[0]
         
-        # assert batch_size%div == 0, f"For minibatch implementation, the batch size should be set to {div}*n"
         mini_size = int(batch_size/div)
-        # print(f"mini batch size = {mini_size}")
         mini_batch_list = []
         #only apply for exp batch
         #for masked token prediction task
@@ -548,9 +871,6 @@ class Spaformer(pl.LightningModule):
             mini_batch = 1
             pc_batch = {k: v[int(mini_batch*mini_size):int((mini_batch+1)*mini_size)] for k, v in batch.items()}
             mini_batch_list.append(pc_batch)
-        #for gene co-occurrence prediction        
-        # spa_batch = {k: v[-mini_size:] for k, v in batch.items()}
-        # mini_batch_list.append(spa_batch)
         
         return mini_batch_list
     
@@ -565,27 +885,29 @@ class Spaformer(pl.LightningModule):
                 real_indices = batch['indices']
                 mask = batch['mask']
                 no_mask = torch.all(torch.where(real_indices != PAD_TOKEN, mask, 1) == 1)
-        # import pdb; pdb.set_trace()
         masked_indices = batch['masked_indices']
         attention_mask = batch['attention_mask']
         token_type_ids = batch["token_type_ids"]      
         adjmtx = batch['adjmtx']
-        # import pdb; pdb.set_trace()
-        # batch = pickle.load(open("/scratch/project_465001027/Spatialformer/data/nanbatch.pkl","rb"))
+        sequence_length = batch["sequence_length"]
 
-
-        predictions = self.forward(masked_indices, adjmtx, attention_mask, token_type_ids)
+        predictions = self.forward(masked_indices, adjmtx, attention_mask, token_type_ids, sequence_length)
         mlm_predictions = predictions['mlm_prediction']
         real_indices = torch.where(mask==MASK_TOKEN, real_indices, torch.tensor(-100, dtype=torch.long)).type(torch.int64)
         mlm_predictions = mlm_predictions.view(-1, self.hparams.n_tokens+self.hparams.n_atokens)
-        # import pdb; pdb.set_trace()
         real_indices = real_indices.view(-1)
 
         if self.outer_config["mini_batch"] == False:
-            pair_label = batch["pair_label"]
-            spa_predictions = predictions['spa_prediction']
-            pair_predictions = predictions['pair_prediction']
-            return mlm_predictions, real_indices, spa_predictions, pair_predictions, pair_label, adjmtx
+            if self.input_type == "pair":
+                pair_label = batch["pair_label"]
+                spa_predictions = predictions['spa_prediction']
+                pair_predictions = predictions['pair_prediction']
+                return mlm_predictions, real_indices, spa_predictions, pair_predictions, pair_label, adjmtx
+            else:
+                pair_label = None
+                spa_predictions = predictions['spa_prediction']
+                pair_predictions = None
+                return mlm_predictions, real_indices, spa_predictions, pair_predictions, pair_label, adjmtx
         else:
 
             return mlm_predictions, real_indices
@@ -613,9 +935,11 @@ class Spaformer(pl.LightningModule):
 
     
     def validation_step(self, batch, batch_idx, *args, **kwargs): 
+        # import pdb; pdb.set_trace()
         batch['adjmtx'] = batch['adjmtx'].to(self.device)
         batch['indices'] = batch['indices'].to(self.device)
-        batch["pair_label"] = batch["pair_label"].to(self.device)
+        if self.input_type == "pair":
+            batch["pair_label"] = batch["pair_label"].to(self.device)
         batch['attention_mask'] = batch['attention_mask'].to(self.device)
         batch["token_type_ids"] = batch["token_type_ids"].to(self.device)
         # import pdb; pdb.set_trace()
@@ -660,12 +984,13 @@ class Spaformer(pl.LightningModule):
                     total_loss += (torch.exp(-log_sigma_mlm) * MLM_loss + log_sigma_mlm)
 
                     Spa_loss = self.MDloss(spa_predictions, adjmtx)# spatial loss
-                    Pair_loss = self.Pairloss(pair_predictions, pair_label) #Paired loss
-                    self.log(f'val_Pair_loss', Pair_loss, sync_dist=True, prog_bar=False, reduce_fx='mean')
-                    accuracy = self.get_acc(pair_predictions, pair_label)
-                    self.log(f'val_pair_accuracy', accuracy, sync_dist=True, prog_bar=True, reduce_fx='mean')
-                    log_sigma_pair = getattr(self, f'log_sigma_reg2')[0]
-                    total_loss += (torch.exp(-log_sigma_pair) * Pair_loss * self.linear_schedule_for_scale() + log_sigma_pair)
+                    if self.input_type == "pair":
+                        Pair_loss = self.Pairloss(pair_predictions, pair_label) #Paired loss
+                        self.log(f'val_Pair_loss', Pair_loss, sync_dist=True, prog_bar=False, reduce_fx='mean')
+                        accuracy = self.get_acc(pair_predictions, pair_label)
+                        self.log(f'val_pair_accuracy', accuracy, sync_dist=True, prog_bar=True, reduce_fx='mean')
+                        log_sigma_pair = getattr(self, f'log_sigma_reg2')[0]
+                        total_loss += (torch.exp(-log_sigma_pair) * Pair_loss + log_sigma_pair)
                     self.log('val_Spa_loss', Spa_loss, sync_dist=True, prog_bar=False, reduce_fx='mean')
                     total_loss += (torch.exp(-self.log_sigma_class[0]) * Spa_loss * self.linear_schedule_for_scale() + self.log_sigma_class[0])
                     self.log('val_total_loss', total_loss, sync_dist=True, prog_bar=True, reduce_fx='mean')
@@ -694,11 +1019,6 @@ class Spaformer(pl.LightningModule):
             
             return
 
-
-
-          
-       
-  
             
     
     def get_embeddings(self, batch, layers: List[int] = [11], pair_prediction=False, co_prediction=False):
@@ -713,7 +1033,6 @@ class Spaformer(pl.LightningModule):
         
         
         indices = batch["indices"].to(self.device)
-        # adjmtx = batch["adjmtx"].to(self.device)
         attention_mask = batch["attention_mask"].to(self.device)
         token_type_ids = batch["token_type_ids"].to(self.device)
         predictions = self.forward(indices, False, attention_mask, token_type_ids)
@@ -727,7 +1046,6 @@ class Spaformer(pl.LightningModule):
                 hidden_repr = [predictions["transformer_output"][i] for i in layers]
                 spa_prediction = predictions["spa_prediction"]#adj matrix
                 probabilities = torch.nn.functional.softmax(spa_prediction, dim=0)
-                # import pdb; pdb.set_trace()
                 return hidden_repr, probabilities
 
         else:
@@ -737,17 +1055,28 @@ class Spaformer(pl.LightningModule):
             #to probabilities
             probabilities = torch.nn.functional.softmax(pair_result_logit, dim=1)
             return hidden_repr, probabilities
+    def get_pair(self, batch):
+        indices = batch["indices"].to(self.device)
+        attention_mask = batch["attention_mask"].to(self.device)
+        token_type_ids = batch["token_type_ids"].to(self.device)
+        predictions = self.forward(indices, False, attention_mask, token_type_ids)
+        pair_result_logit = predictions["pair_prediction"]
+        return pair_result_logit
+
+
     def get_attention(self, batch, layers: List[int] = [11]):
         indices = batch["indices"].to(self.device)
         adjmtx = batch["adjmtx"].to(self.device)
         attention_mask = batch["attention_mask"].to(self.device)
         token_type_ids = batch["token_type_ids"].to(self.device)
         new_batch_length = indices.shape[1]
-        # self.set_variable_length(new_batch_length)
         predictions = self.forward(indices, adjmtx, attention_mask, token_type_ids)
         attn_score = [predictions["attention_score"][i] for i in layers]
                   
         return attn_score
+    
+
+
         
     
     def configure_optimizers(self):
@@ -764,26 +1093,50 @@ class Spaformer(pl.LightningModule):
             if isinstance(m, nn.Linear):
                 init.xavier_normal_(m.weight)
                 init.zeros_(m.bias)
-                
- 
-
 
 
 class CosineWarmupScheduler(optim.lr_scheduler._LRScheduler):
+    """
+    Learning rate scheduler with linear warmup followed by cosine annealing.
+    """
 
-    def __init__(self, optimizer, warmup, max_epochs):
-        self.warmup = warmup
+    def __init__(self, optimizer: optim.Optimizer, warmup: int, max_epochs: int):
+        """
+        Args:
+            optimizer: PyTorch optimizer
+            warmup: Number of warmup steps
+            max_epochs: Total number of training epochs/steps
+        """
+        self. warmup = warmup
         self.max_num_epochs = max_epochs
         super().__init__(optimizer)
 
-    def get_lr(self):
+    def get_lr(self) -> List[float]:
+        """
+        Compute learning rate for current step.
+        
+        Returns:
+            List of learning rates for each parameter group
+        """
         lr_factor = self.get_lr_factor(epoch=self.last_epoch)
         return [max(1e-5, base_lr * lr_factor) for base_lr in self.base_lrs]
 
-    def get_lr_factor(self, epoch):
+    def get_lr_factor(self, epoch: int) -> float:
+        """
+        Compute learning rate multiplier for given epoch.
+        
+        Args:
+            epoch: Current epoch/step number
+        
+        Returns:
+            Learning rate multiplier (0.0 to 1.0)
+        """
+        # Cosine annealing
         lr_factor = 0.5 * (1 + np.cos(np.pi * epoch / self.max_num_epochs))
+        
+        # Linear warmup
         if epoch <= self.warmup:
             lr_factor *= epoch * 1.0 / self.warmup
-        return lr_factor
-    
             
+        return lr_factor
+

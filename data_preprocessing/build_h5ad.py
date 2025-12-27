@@ -9,23 +9,25 @@ import argparse
 import itertools
 from pathlib import Path
 import random
+import zarr
 from scipy.sparse import csr_matrix
 current_file_path = Path(__file__).resolve()
 p_path = current_file_path.parents[1]
-
-sys.path.append("p_path")
+sys.path.append(str(p_path))
+sys.path.append(os.path.join(str(p_path), "utils"))
 # from utils import *
 import pickle
 from utils import *
 from tqdm import tqdm
 import logging
 import argparse
+import glob
+from xenium_5k_cell_feature import read_xenium_5k
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 def preprocess(partitions : int = 6, 
                data_name : str = "Xenium_Preview_Human_Non_diseased_Lung_With_Add_on_FFPE_outs",
-               matrix_name : str = None,
                transcript_threshold : int = 100,
                Condition : str = "Healthy",
                Tissues : str = "Lung",
@@ -40,7 +42,6 @@ def preprocess(partitions : int = 6,
     Args:
         partitions: Number of partitions that are used to save the AnnData. An OOM error will raise if we concate all the transcript in one file
         data_name: The name of the dataset to distinguish different dataset we use.
-        matrix_name: The datanames use to identify the gene-gene interaction file
         transcript_threshold: The minimum number of transcripts locates within the cells.
         condition: The healthy status of the sample, which can become optional: healthy, disease.
         Tissues: The tissue where the samples are collected from.
@@ -63,11 +64,51 @@ def preprocess(partitions : int = 6,
     os.makedirs(raw_dir, exist_ok = True)
     os.makedirs(data_dir, exist_ok = True)
     os.makedirs(save_dir, exist_ok = True)
-    #Processing the genes and cells
-    adata = sc.read_10x_h5(f"{raw_dir}/cell_feature_matrix.h5") #10M
+
+    #find the cell_feature file
+    prefix = "cell_feature_matrix"
+
+    # Use glob to find any file starting with the prefix followed by anything
+    search_pattern = os.path.join(raw_dir, f"{prefix}*")
+
+    # This list will contain the full paths of all matching files
+    found_files = glob.glob(search_pattern)
+
+    if found_files:
+        # We assume the first found file is the correct matrix
+        matrix_file_path = found_files[0] 
+        
+        # 1. Print the file found
+        print(f"Found matrix file: {matrix_file_path}")
+        
+        # 2. Extract the suffix
+        # The os.path.basename isolates the file name (e.g., 'cell_feature_matrix.h5')
+        filename = os.path.basename(matrix_file_path)
+        
+        # We can split the filename on the prefix to get the suffix part
+        # We split only once (maxsplit=1) to ensure we capture '.zarr.zip'
+        suffix = filename.split(prefix, 1)[1] 
+        
+        print(f" Extracted suffix: {suffix}")
+        
+    else:
+        print(f"Error: No file found starting with '{prefix}' in '{raw_dir}'")
+        matrix_file_path = None
+        suffix = None
     
-    adata.var = adata.var.reset_index().rename(columns={'index': 'gene_name'}).set_index('gene_ids')
-    adata.var.index.name = None
+    if suffix == ".h5":
+        adata = sc.read_10x_h5(f"{raw_dir}/cell_feature_matrix.h5") #10M
+    elif suffix == ".zarr.zip":
+        xenium_loader = read_xenium_5k(f"{raw_dir}/cell_feature_matrix.zarr.zip")
+        
+        adata = xenium_loader()
+    #convert gene names to the columns and set gene id as index
+    try:
+        adata.var = adata.var.reset_index().rename(columns={'index': 'gene_name'}).set_index('gene_ids')
+        adata.var.index.name = None
+    except:
+        adata.var = adata.var.reset_index().rename(columns={'feature_name': 'gene_name', "feature_id": "gene_ids"}).set_index('gene_ids')
+        adata.var.index.name = None
     #transfer to sparse matrix
     adata.X = csr_matrix(adata.X)
     #adding additional information for the whole dataset
@@ -76,81 +117,52 @@ def preprocess(partitions : int = 6,
     adata.obs["Species"] = pd.Categorical([Species for i in range(len(adata))])
     adata.obs["Assay"] = pd.Categorical([Assay for i in range(len(adata))])
     adata.obs["DataID"] = pd.Categorical([data_name for i in range(len(adata))])
-    #adding the filtering information
-    #The cells that are filtered should be identified here according to the output of the transcript.csv
-    # import pdb; pdb.set_trace()
-    try:
-        transcript_df = pd.read_csv(f"{raw_dir}/transcripts.csv") #2G
-    except:
-        transcript_df = pd.read_csv(f"{raw_dir}/transcripts.csv.gz") #2G
-    transcript_df.rename(columns={'x_location': 'x', 'y_location':'y', 'z_location':'z', 'feature_name':'gene'}, inplace=True)
-    value_counts = transcript_df['cell_id'].value_counts()
-    # import pdb; pdb.set_trace()
-    try:
-        value_counts = value_counts.drop("UNASSIGNED")
-    except:
-        value_counts = value_counts.drop(-1)
-    # import pdb; pdb.set_trace()
-    kept_cell_id_unique = transcript_df[transcript_df['cell_id'].isin(value_counts.index[value_counts >= transcript_threshold])]['cell_id'].unique().astype(str)
-    #filtering the cells match the threshold
-    adata = adata[kept_cell_id_unique, :]
     
     #filtering shoud be identified here, filtering the auxiliary genes Unassigned
-    genes_mask = ~(adata.var["gene_name"].str.startswith('Neg') | adata.var["gene_name"].str.startswith('BLANK')| adata.var["gene_name"].str.startswith('Unassigned'))
+    genes_mask = ~(adata.var["gene_name"].str.startswith('Neg') | 
+                   adata.var["gene_name"].str.startswith('BLANK')| 
+                   adata.var["gene_name"].str.startswith('Unassigned')|
+                   adata.var["gene_name"].str.startswith('Deprecated')|
+                   adata.var["gene_name"].str.startswith('Intergenic')|
+                   adata.var["gene_name"].str.startswith('Total')|
+                   adata.var["gene_name"].str.startswith('Human'))
+    
+    #using the transcript file to get the reference of the genes
+    
     adata = adata[:, genes_mask]
-
-    #split the dataset and then attach the split tags
-    adata = split_data(adata, train_proportion=0.64, test_proportion=0.2, validation_proportion=0.16)
-
-    #getting the compartment information for the downstream verification
-    #TODO: getting the nucleus and cytoplasm info
-    # adata.obs["Compartments"] = 'nuclus'
-
 
     #merge all the .h5 file to a single file
     # List of input file paths
-    # h5_file_paths = [h5_file_path.split(".")[0][:-1] + str(partition) +"."+h5_file_path.split(".")[1] for partition in range(1, partitions+1)]
+    matrix_name = data_name+"_gene_interaction"
     data_files = [os.path.join(os.path.abspath(save_dir),file) for file in os.listdir(save_dir) if data_name in file]
-    # import pdb; pdb.set_trace()
     matching_files = [file for file in data_files if matrix_name in file and "merge" not in file]
-    
-    merge_file_path = os.path.join(data_dir, matrix_name + "_merged.h5")
-    # import pdb; pdb.set_trace()
     # Create a new HDF5 file for merging
-    if not os.path.exists(merge_file_path):
-        print(f"{merge_file_path} is not exists, running the code to merge all the partitions")
-        with h5py.File(merge_file_path, "w") as merged_file:
-            for h5_file_path in tqdm(matching_files):
-                with h5py.File(h5_file_path, "r") as input_file:
-                    # Copy datasets from input file to merged file
-                    for cell_id in tqdm(list(input_file.keys())):
-                        # import pdb; pdb.set_trace()
-                        old_grp = input_file[cell_id]
-                        new_grp = merged_file.create_group(str(cell_id))
-                        new_grp.create_dataset('data', data=list(old_grp["data"]))
-                        new_grp.create_dataset('row', data=list(old_grp["row"]))
-                        new_grp.create_dataset('col', data=list(old_grp["col"]))
-                        new_grp.attrs['shape'] = old_grp.attrs['shape']
-    print(f"Merged datasets from {len(matching_files)} files into {merge_file_path}")
-
-    #open the h5 file and save the complete h5 file
-    # import pdb; pdb.set_trace()
+    # Load directly from partition files without merging
+    print("Loading matrices directly from partition files...")
+    cell_ids_needed = set(adata.obs.index) - {"bahfibck-1"}
+    cell_id_to_matrix = {}  # Store matrices temporarily
+    
+    for h5_file_path in tqdm(matching_files, desc="Processing partition files"):
+        with h5py.File(h5_file_path, 'r') as file:
+            for cell_id in file.keys():
+                if str(cell_id) in cell_ids_needed:
+                    try:
+                        int_matrix = read_h5(file, str(cell_id)).tocsr()
+                        assert int_matrix.shape[0] == adata.n_vars, f"Matrix row count {int_matrix.shape[0]} does not match adata.n_vars {adata.n_vars} for cell {cell_id}"
+                        cell_id_to_matrix[str(cell_id)] = int_matrix
+                    except Exception as e:
+                        print(f"Error loading {cell_id}: {e}")
+                        continue
+    # Add matrices to adata.uns in the order of adata.obs.index
     keep_id = []
-    with h5py.File(merge_file_path, 'r') as file:
-        for cell_id in tqdm(list(adata.obs.index)):
-            if cell_id != "bahfibck-1":
-                try: 
-                    # import pdb; pdb.set_trace()
-                    int_matrix = read_h5(file, str(cell_id)).tocsr()
-                    #merge the matrix into the Anndata file
-                    adata.uns[cell_id] = int_matrix
-                    keep_id.append(cell_id)
-                except:
-                    print(f"{cell_id} not in the h5 data")
-                    continue
+    for cell_id in tqdm(list(adata.obs.index), desc="Adding matrices to adata.uns"):
+        if cell_id != "bahfibck-1" and str(cell_id) in cell_id_to_matrix:
+            adata.uns[cell_id] = cell_id_to_matrix[str(cell_id)]
+            keep_id.append(cell_id)
+        elif cell_id != "bahfibck-1":
+            print(f"{cell_id} not in the h5 partition files")
     #saving the data into ".h5"
     adata = adata[keep_id, :]
-    # import pdb; pdb.set_trace()
     adata.write(f"{save_dir}/{data_name}.h5ad")
 
 
@@ -159,7 +171,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='embed all the info altogether')
     parser.add_argument('--partitions', type=int, default=1, help='The number of partitions that need to be integrated')
     parser.add_argument('--data_name', type=str, default=None, help='The datanames use to identify the raw file')
-    parser.add_argument('--matrix_name', type=str, default=None, help='The datanames use to identify the gene-gene interaction file')
     parser.add_argument('--transcript_threshold', type=int, default=100, help='The number of transcripts locate within the cells')
     parser.add_argument('--condition', type=str, default="Healthy", help='The status of the sample')
     parser.add_argument('--tissues', type=str, default="Lung", help='The tissue where the sample is collected from')
@@ -171,7 +182,6 @@ if __name__ == "__main__":
     
     preprocess(partitions = args.partitions, 
                data_name = args.data_name,
-               matrix_name = args.matrix_name,
                transcript_threshold = args.transcript_threshold,
                Condition = args.condition,
                Tissues = args.tissues,

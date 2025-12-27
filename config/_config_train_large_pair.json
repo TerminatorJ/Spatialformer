@@ -1,6 +1,7 @@
 {
-    "pretrained_path": "/scratch/project_465001027/Spatialformer/output/checkpoints/step=0024000-train_total_loss=-1.6503-val_total_loss=0.0000.ckpt",
+    "pretrained_path": "/scratch/project_465001820/Spatialformer_main_practice/output/checkpoints/step=0096000-train_total_loss=-2.9351-val_total_loss=0.0000.ckpt",
     "retake_training": true,
+    "flash_attn": true,
     "input_mode": "pair",
     "mask_way": "MT",
     "weight_strategy": "UW",
@@ -27,6 +28,9 @@
     "pad_token": 0,
     "sep_token": 1949,
     "batch_size": 4,
+    "num_positives_per_query": 1,
+    "num_hard_negatives_per_query": 0,
+    "num_easy_negatives_per_query": 1,
     "context_length": 500,
     "lr": 1e-4,
     "strategy": "ddp",
@@ -42,5 +46,5 @@
     "condition": true,
     "spatial_embedding": true,
     "spatial_embedding_freeze": false,
-    "embedding_path": "/home/sxr280/Spatialformer_6_10/spatial_embeddings/gene_embeddings_GraphSAGE_pandavid.pkl"
+    "embedding_path": "/scratch/project_465001820/Spatialformer/spatial_embeddings/gene_embeddings_GraphSAGE_pandavid.pkl"
 }

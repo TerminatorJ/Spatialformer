@@ -54,3 +54,21 @@ downstream/Coordinate_perturbation/data/*
 #all pickled files
 *.pkl
 
+#download intermediate files
+/data_preprocessing/*.err
+/data_preprocessing/*.out
+
+
+#pyc files
+*.pyc
+__pycache__/
+
+#other data
+other_data/
+
+#train file
+/train/*.err
+/train/*.out
+
+
+

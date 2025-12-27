@@ -1,5 +1,4 @@
 from typing import Optional
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -159,12 +158,70 @@ class AltAttention(nn.Module):
         x = self.proj(x)# B X L X D
         # x = self.proj_drop(x)
         return x
-
+class FlashAttentionAMD(nn.Module):
+    def __init__(self, dim, num_heads, dropout=0.0):
+        super().__init__()
+        self.num_heads = num_heads
+        self.head_dim = dim // num_heads
+        self.scale = self.head_dim ** -0.5
+        
+        self.qkv = nn.Linear(dim, dim * 3)
+        self.proj = nn.Linear(dim, dim)
+        self.dropout = dropout
+        
+    def forward(self, x, mask=None):
+        B, N, C = x.shape
+        qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, self.head_dim)
+        qkv = qkv.permute(2, 0, 3, 1, 4)  # (3, B, heads, N, head_dim)
+        q, k, v = qkv[0], qkv[1], qkv[2]
+        
+        # ============ FIX: Reshape mask properly ============
+        attn_mask = None
+        if mask is not None:
+            if mask.dim() == 2:
+                # mask shape: (B, N) -> (B, 1, 1, N) for key padding mask
+                attn_mask = mask.unsqueeze(1).unsqueeze(2)
+                # Expand to (B, 1, N, N) if needed for full attention masking
+                # attn_mask = attn_mask.expand(-1, -1, N, -1)
+            elif mask.dim() == 3:
+                # mask shape: (B, N, N) -> (B, 1, N, N)
+                attn_mask = mask.unsqueeze(1)
+            elif mask.dim() == 4:
+                # Already correct shape (B, heads, N, N) or (B, 1, N, N)
+                attn_mask = mask
+            
+            # Convert boolean mask to float if needed
+            # SDPA expects: True = attend, False = don't attend (for bool)
+            # OR additive mask: 0 = attend, -inf = don't attend (for float)
+            if attn_mask.dtype == torch.bool:
+                pass  # SDPA handles bool masks correctly
+            else:
+                # If your mask is 0/1 float, convert to additive mask
+                attn_mask = attn_mask.masked_fill(attn_mask == 0, float('-inf'))
+                attn_mask = attn_mask.masked_fill(attn_mask == 1, 0.0)
+        # ====================================================
+        
+        with torch.backends.cuda.sdp_kernel(
+            enable_flash=True,
+            enable_math=True,
+            enable_mem_efficient=True
+        ):
+            attn_output = F.scaled_dot_product_attention(
+                q, k, v,
+                attn_mask=attn_mask,
+                dropout_p=self.dropout if self.training else 0.0,
+                is_causal=False
+            )
+        
+        attn_output = attn_output.transpose(1, 2).reshape(B, N, C)
+        return self.proj(attn_output)
 class AltBlock(nn.Module):
-    def __init__(self, dim=256, num_heads=4, expand=4, attn_dropout=0.2, mlp_dropout=0.2, drop_path=0., activation='gelu', prenorm=True, **kwargs):
+    def __init__(self, dim=256, num_heads=4, expand=4, attn_dropout=0.2, mlp_dropout=0.2, drop_path=0., activation='gelu', prenorm=True, flash_attn=False, **kwargs):
         super().__init__(**kwargs)
         self.norm1 = nn.LayerNorm(dim)#MaskedBatchNorm1d(dim, momentum=0.05, channels_last=True)
+
         self.self_attn = AltAttention(dim=dim,num_heads=num_heads,dropout=attn_dropout)
+
         self.drop1 = DropPath(drop_path)
 
         self.norm2 = nn.LayerNorm(dim)#MaskedBatchNorm1d(dim, momentum=0.05, channels_last=True)

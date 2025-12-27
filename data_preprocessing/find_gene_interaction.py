@@ -1,35 +1,49 @@
 import os 
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+os.environ["OPENBLAS_NUM_THREADS"] = "1"
+os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
+os.environ["NUMEXPR_NUM_THREADS"] = "1"
 import sys 
+import psutil
 import h5py
-import pandas as pd
 import numpy as np
-from multiprocessing import Pool
-import multiprocessing
 import argparse
-import itertools
 from pathlib import Path
-import random
 current_file_path = Path(__file__).resolve()
 p_path = current_file_path.parents[1]
-sys.path.append("p_path")
-sys.path.append(os.path.join(p_path, "utils"))
+sys.path.append(str(p_path))
+sys.path.append(os.path.join(str(p_path), "utils"))
 from process import KNN_Radius_Graph
-import pickle
 import argparse
 from utils import *
 import logging
+from multiprocessing import Pool
 from datetime import datetime
+import dask.dataframe as dd
+from dask.diagnostics import ProgressBar
 from tqdm import tqdm
+import dask
+import gc
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
+
+def load_all_parquet(directory, partition=None):
+    if partition:
+        pattern = os.path.join(directory, f"cell_chunk_{partition}.parquet")
+    else:
+        pattern = os.path.join(directory, "*.parquet")
+    return dd.read_parquet(pattern)
+
+
+
 class GeneInteractionProcessor:
-    def __init__(self, threshold, gene_threshold, gene_repeat, radius, pair_threshold, number_cell, transcript_file, h5_file_path):
+    def __init__(self, threshold, gene_threshold, gene_repeat, radius, pair_threshold, transcript_file, h5_file_path):
         self.threshold = threshold
         self.radius = radius
         self.pair_threshold = pair_threshold
-        self.number_cell = number_cell
-        self.lung_annot_3D_tx_filtered = None
+        self.ddf = None
         self.genes = None
         self.h5_file_path = h5_file_path
         self.transcript_file = transcript_file
@@ -37,75 +51,123 @@ class GeneInteractionProcessor:
         self.gene_repeat = gene_repeat
 
     def load_and_preprocess_data(self):
+        input_path = Path(self.transcript_file)
         if self.transcript_file[-2:] == "gz":
-            # import pdb; pdb.set_trace()
-            lung_annot_3D_tx = pd.read_csv(self.transcript_file, compression='gzip') 
+            ddf = dd.read_csv(self.transcript_file, compression='gzip', blocksize='64MB')
+        elif self.transcript_file[-3:] == "zarr":
+            ddf = dd.read_parquet(self.transcript_file)
+        elif input_path.is_dir():
+            if args.dataname != "Xenium_Prime_Human_Ovary_FF_xe_outs":
+                ddf = load_all_parquet(self.transcript_file)
+            else:
+                ddf = load_all_parquet(self.transcript_file, partition=args.parquet_partition)
+            #fill the na with UNASSIGNED
+            ddf["cell_id"] = ddf["cell_id"].fillna("UNASSIGNED")
         else:
-            lung_annot_3D_tx = pd.read_csv(self.transcript_file)
-        lung_annot_3D_tx.rename(columns={'x_location': 'x', 'y_location': 'y', 'z_location': 'z', 'feature_name': 'gene'}, inplace=True)
-        
-        
-        #filter genes and cells level
-        # import pdb; pdb.set_trace()
+            ddf = dd.read_csv(self.transcript_file, blocksize='64MB')
+        # Rename columns
+        ddf = ddf.rename(columns={
+            'x_location': 'x', 
+            'y_location': 'y', 
+            'z_location': 'z', 
+            'feature_name': 'gene'
+        })
 
-        #filter by gene level
-        self.lung_annot_3D_tx_filtered = lung_annot_3D_tx[~(lung_annot_3D_tx['gene'].str.startswith('Neg') | lung_annot_3D_tx['gene'].str.startswith('BLANK') | lung_annot_3D_tx['gene'].str.startswith('Unassigned'))]
-        #also filter out the cell with gene number less than 10
-        # gene_counts = self.lung_annot_3D_tx_filtered.groupby('cell_id')['gene'].nunique().reset_index(name='unique_gene_count')
-        # self.lung_annot_3D_tx_filtered = self.lung_annot_3D_tx_filtered[self.lung_annot_3D_tx_filtered['cell_id'].isin(gene_counts["cell_id"][gene_counts["unique_gene_count"] >= self.gene_threshold])]
-        #get mean count of all gene in the same cell
-        # genet_counts = self.lung_annot_3D_tx_filtered.groupby(['cell_id', 'gene']).size().reset_index(name='count')
-        # mean_gene_count = genet_counts.groupby('cell_id')['count'].mean().reset_index(name='mean_gene_count')
-        # self.lung_annot_3D_tx_filtered = self.lung_annot_3D_tx_filtered[self.lung_annot_3D_tx_filtered['cell_id'].isin(mean_gene_count["cell_id"][mean_gene_count["mean_gene_count"] >= self.gene_repeat])]
+        # Filter by gene level
+        logging.info("Filtering genes...")
+        ddf = ddf[~ddf['gene'].str.startswith(('Neg', 'BLANK', 'Unassigned', 'Deprecated', 'Intergenic'))]
+ 
+        # OPTIMIZATION 2: Only select needed columns early
+        ddf = ddf[['x', 'y', 'z', 'gene', 'cell_id']]
+        # Compute value counts for filtering (small object)
+        logging.info("Computing cell transcript counts...")
+        with ProgressBar():
+            logging.info("Calculating the number of transcripts for each cell...")
+            value_counts = ddf['cell_id'].value_counts().compute()
 
-        #filter by transcript level
-        # self.lung_annot_3D_tx_filtered = self.lung_annot_3D_tx_filtered[self.lung_annot_3D_tx_filtered["qv"] > 20]
-        value_counts = self.lung_annot_3D_tx_filtered['cell_id'].value_counts()
+        # Filter cells by threshold
         try:
             clean_value_counts = value_counts.drop("UNASSIGNED")
-            self.lung_annot_3D_tx_filtered = self.lung_annot_3D_tx_filtered[self.lung_annot_3D_tx_filtered['cell_id'].isin(clean_value_counts.index[clean_value_counts >= self.threshold])]
+            valid_cells = clean_value_counts.index[clean_value_counts >= self.threshold]
         except:
-            self.lung_annot_3D_tx_filtered = self.lung_annot_3D_tx_filtered[self.lung_annot_3D_tx_filtered['cell_id'].isin(value_counts.index[value_counts >= self.threshold])]
-        # import pdb; pdb.set_trace()
-        kept_cells_num = len(self.lung_annot_3D_tx_filtered['cell_id'].unique())
+            valid_cells = value_counts.index[value_counts >= self.threshold]
+
+        logging.info(f"Filtering cells with threshold >= {self.threshold}...")
+        # Convert to set for O(1) lookup
+        valid_cells_set = set(valid_cells)
+        ddf = ddf[ddf['cell_id'].isin(valid_cells_set)]
+
+        # Store filtered Dask DataFrame (no .compute())
+        self.ddf = ddf
         
-        final_value_counts = self.lung_annot_3D_tx_filtered['cell_id'].value_counts()
-        # print(self.lung_annot_3D_tx_filtered['gene'].unique())
-        self.genes = list(self.lung_annot_3D_tx_filtered["gene"].unique())
-        # import pdb; pdb.set_trace()
+        # Compute statistics efficiently
+        with ProgressBar():
+            logging.info("Calculating gene and transcript stats...")
+            # Use parallel computation
+            kept_cells_num, genes = dask.compute(
+                ddf['cell_id'].nunique(),
+                ddf["gene"].unique()
+            )
+            self.genes = genes.tolist()
+            final_value_counts = value_counts[value_counts.index.isin(valid_cells_set)]
+
         logging.info(f"The number of cells that are kept: {kept_cells_num}")
         logging.info(f"Mean transcripts per cell: {np.mean(final_value_counts)}")
         logging.info(f"Total transcripts left: {np.sum(final_value_counts)}")
-        logging.info(f"Gene number after filtering: {len(self.lung_annot_3D_tx_filtered['gene'].unique())}")
+        logging.info(f"Gene number after filtering: {len(self.genes)}")
         
         # Create the HDF5 file
         with h5py.File(self.h5_file_path, 'w') as f:
-            pass 
+            pass
         
-    
 
-def calculate_func(cell_id):
+def calculate_func(params):
+    df = params[0]
+    cell_id = params[1]
     try:
-        data_graph = KNN_Radius_Graph(radius=radius, dataset=lung_annot_3D_tx_filtered, is_3D=True, cell_ID=cell_id, ref_gene=genes)
+        data_graph = KNN_Radius_Graph(radius=radius, dataset=df, is_3D=True, cell_ID=cell_id, ref_gene=genes)
         gene_binary_matrix, gene_freq_matrix, trans_matrix = data_graph.get_gene_matrix(pair_threshold=pair_threshold, self_threshold=pair_threshold, plot=False)
         coo_matrix = binary_to_coo_matrix(gene_binary_matrix)
-        pair_num = coo_matrix.toarray().sum()/2
+        pair_num = coo_matrix.nnz / 2  # Since it's symmetric, divide by 2
+        
+        del data_graph
+        del gene_binary_matrix
+        del gene_freq_matrix
+        del trans_matrix
+        del df  # Delete input dataframe
+        gc.collect()
         return (cell_id, coo_matrix, pair_num)
 
     except Exception as e:
         logging.error(f"Error processing cell_id {cell_id}: {e}")
-        return (cell_id, None)
+        return (cell_id, None, None)
 
 def write_to_hdf5(results, h5_file_path):
     with h5py.File(h5_file_path, 'a') as f:
         for cell_id, coo_matrix, pair_num in results:
             if coo_matrix is not None:
                 grp = f.create_group(str(cell_id))
-                grp.create_dataset('data', data=coo_matrix.data)
-                grp.create_dataset('row', data=coo_matrix.row)
-                grp.create_dataset('col', data=coo_matrix.col)
+                grp.create_dataset('data', data=coo_matrix.data, compression='gzip', compression_opts=1)
+                grp.create_dataset('row', data=coo_matrix.row, compression='gzip', compression_opts=1)
+                grp.create_dataset('col', data=coo_matrix.col, compression='gzip', compression_opts=1)
                 grp.attrs['shape'] = coo_matrix.shape
                 
+def get_total_memory():
+    """Get total memory used by this job (main + all workers)"""
+    current_process = psutil.Process(os.getpid())
+    
+    # Get memory of main process
+    total_mem = current_process.memory_info().rss
+    
+    # Add memory of all child processes
+    children = current_process.children(recursive=True)
+    for child in children:
+        try:
+            total_mem += child.memory_info().rss
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            pass
+    
+    return total_mem / (1024**2)  # Convert to MB
 
 
 if __name__ == "__main__":
@@ -115,71 +177,120 @@ if __name__ == "__main__":
     parser.add_argument('--gene_repeat', type=int, default=2, help='the number of transcript for each gene')
     parser.add_argument('--radius', type=int, default=5, help='the radius to separate compartments')
     parser.add_argument('--pair_threshold', type=int, default=3, help='the pair threshold for the same transcripts and different transcripts')
-    parser.add_argument('--number_cell', type=int, default=2, help='number of cells that are used to calculate, this can be useful for debugging the codes and gene-gene pipeline')
     parser.add_argument('--transcript_file', type=str, default="/scratch/project_465001027/nicheformer/src/nicheformer/data/raw/Xenium_Preview_Human_Non_diseased_Lung_With_Add_on_FFPE_outs/transcripts.csv", help='the file path of the transcript')
     parser.add_argument('--partition', type=int, default=1, help='The partition of cell_id that are used to run separately')
+    parser.add_argument('--parquet_partition', type=int, default=1, help='The partition of cell_id that are used to run separately for the large dataset')
     parser.add_argument('--chunks', type=int, default=20000, help='The number of chunks for dividing the cell_ids')
     parser.add_argument('--dataname', type=str, default=None, help='The overall name of the dataset')
-    parser.add_argument('--datapath_name', type=str, default="david_data", help='The name of the data path that is used to store all the raw and processed dataset')
     args = parser.parse_args()
-    erda_path = "/tmp/erda/Spatialformer/downloaded_data/processed"
+    erda_path = "/scratch/project_465001820/Spatialformer/data/processed"
+    # erda_path = "/projects/sc_clip/data/spatialformer_gco"
 
     os.makedirs(erda_path, exist_ok=True)
-    h5_file_path = os.path.join(erda_path, f"{args.dataname}_gene_interaction_{datetime.now()}.h5")
-    #adding the partitions information
     
-    h5_file_path = h5_file_path.split(".")[0] + "_" + str(args.partition) + "." + h5_file_path.split(".")[2]
-    processor = GeneInteractionProcessor(args.threshold, args.gene_threshold, args.gene_repeat, args.radius, args.pair_threshold, args.number_cell, args.transcript_file, h5_file_path)
-    processor.load_and_preprocess_data()
-    global lung_annot_3D_tx_filtered
+    h5_file_path = os.path.join(erda_path, f"{args.dataname}_gene_interaction_{datetime.now()}.h5")
+    
+    h5_file_path_base = h5_file_path.rsplit(".", 1)[0]  # Everything before .h5
+    h5_file_path = f"{h5_file_path_base}_{args.partition}.h5"
+    
     global radius
     global pair_threshold
     global genes
-    
-    #fetch parameters from the class
-    lung_annot_3D_tx_filtered = processor.lung_annot_3D_tx_filtered
-    radius = processor.radius
-    pair_threshold = processor.pair_threshold
+    #adding the partitions information
+    # h5_file_path = h5_file_path.split(".")[0] + "_" + str(args.partition) + "." + h5_file_path.split(".")[2]
+    processor = GeneInteractionProcessor(args.threshold, args.gene_threshold, args.gene_repeat, args.radius, args.pair_threshold, args.transcript_file, h5_file_path)
+    processor.load_and_preprocess_data()
+    ddf_flt = processor.ddf
     genes = processor.genes
+    del processor
+    gc.collect()
+    radius = args.radius
+    pair_threshold = args.pair_threshold
 
-    cell_ids = list(lung_annot_3D_tx_filtered['cell_id'].unique())
-    #calculating how many partitions you need
-    logging.info(f"total partitions you need are: {len(cell_ids)//args.chunks + 1}")
     
-    # import pdb; pdb.set_trace()
-    cell_ids = random.sample(cell_ids, args.number_cell) if args.number_cell < 10 else cell_ids[:args.number_cell]
-    cell_ids = cell_ids[args.chunks * (args.partition - 1): args.chunks * args.partition]
-    # cell_ids = cell_ids[:2]
-    batch_size = 200
-    input_batches = [cell_ids[i:i + batch_size] for i in range(0, len(cell_ids), batch_size)]
+    
+    # Get cell IDs
+    with ProgressBar():
+        logging.info("Computing all cell IDs...")
+        all_cell_ids = ddf_flt['cell_id'].unique().compute().tolist()
+    
+    logging.info(f"Total partitions needed: {len(all_cell_ids)//args.chunks + 1}")
+    
+    cell_ids = all_cell_ids[args.chunks * (args.partition - 1): args.chunks * args.partition]
+    logging.info(f"Pre-filtering {len(cell_ids)} cells...")
+
+    if not cell_ids:
+        logging.info("No cells in this partition. Exiting.")
+        sys.exit(0)
+
+
+    MINI_BATCH_SIZE = 200  # Process 200 cells at a time
+    n_cpus = int(os.environ.get('SLURM_CPUS_PER_TASK', 16))
+    logging.info(f"Using {n_cpus} workers")
+    
     results = []
     pairs_num = []
-    # with Pool(processes=multiprocessing.cpu_count()) as pool:
-    with Pool(processes=64) as pool:
-        for batch in tqdm(input_batches):
-            result = list(pool.imap_unordered(calculate_func, batch))
-            pairs_num.extend([i[2] for i in result])
-            results.extend(result)
-    # import pdb; pdb.set_trace()
-    #get the mean and median number of gene pairs
-    mean_pair = np.mean(pairs_num)
-    median_pair = np.median(pairs_num)
-    logging.info(f"mean number of the pairs is: {mean_pair:.4f}")
-    logging.info(f"median number of the pairs is: {median_pair}")
-    # import pdb; pdb.set_trace()
-    # Write results to HDF5 file
-    write_to_hdf5(results, h5_file_path)
-    # Handle results after all jobs are done
-    failure_count = sum(1 for result in results if result[1] == None)
-    success_count = len(results) - failure_count
-    logging.info(f"Processing completed. Success: {success_count}, Failure: {failure_count}")
-
     
+    # Split cell_ids into mini-batches
+    for mini_batch_idx in range(0, len(cell_ids), MINI_BATCH_SIZE):
+        mini_batch_cells = cell_ids[mini_batch_idx:mini_batch_idx + MINI_BATCH_SIZE]
+        
+        logging.info(f"Processing mini-batch {mini_batch_idx//MINI_BATCH_SIZE + 1}/{len(cell_ids)//MINI_BATCH_SIZE + 1} ({len(mini_batch_cells)} cells)...")
+        
+        # OPTIMIZATION 5: Load only THIS mini-batch into pandas
+        with ProgressBar():
+            df_pandas = ddf_flt[ddf_flt['cell_id'].isin(mini_batch_cells)].compute()
+        
+        # Convert to dict
+        cell_dict = {cell_id: group.reset_index(drop=True) 
+                     for cell_id, group in df_pandas.groupby('cell_id', observed=True)}
+        
+        # Prepare tasks for this mini-batch
+        tasks = [
+            (cell_dict[cell_id], cell_id)
+            for cell_id in mini_batch_cells if cell_id in cell_dict
+        ]
+        
+        # Free memory immediately
+        del df_pandas
+        del cell_dict
+        gc.collect()
+        
+        # Process with multiprocessing
+        with Pool(processes=n_cpus) as pool:
+            # chunksize = max(1, len(tasks) // (n_cpus * 4))
+            for result in tqdm(pool.imap_unordered(calculate_func, tasks), 
+                             total=len(tasks), desc=f"Mini-batch {mini_batch_idx//MINI_BATCH_SIZE + 1}"):
+                
+                
+                total_mem_mb = get_total_memory()
+                mem_str = f"{total_mem_mb/1024:.2f}G" if total_mem_mb > 1024 else f"{total_mem_mb:.1f}M"
+                logging.info(f"Processed {len(results)} cells, Total memory: {mem_str}")
+                if result[2] is not None:
+                    pairs_num.append(result[2])
+                    results.append(result)
+                
+                # Write every 1000 results
+                if len(results) >= 500:
+                    write_to_hdf5(results, h5_file_path)
+                    results = []
+                    gc.collect()
+        
+        # Force garbage collection between mini-batches
+        gc.collect()
+    
+    # Write remaining results
+    if results:
+        write_to_hdf5(results, h5_file_path)
+    
+    logging.info("Processing completed")
+    if pairs_num:
+        logging.info(f"Mean pairs: {np.mean(pairs_num):.4f}, Median: {np.median(pairs_num)}")
 
 
 #for the new downloaded dataset
 
-# python find_gene_interaction.py --transcript_file /tmp/erda/Spatialformer/downloaded_data/raw/Xenium_V1_hBoneMarrow_nondiseased_section_outs/transcripts.csv.gz --number_cell 84518 --partition 1 --dataname Xenium_50
+# python find_gene_interaction.py --transcript_file /tmp/erda/Spatialformer/downloaded_data/raw/Xenium_V1_Human_Ovary_Cancer_FF_xe_outs/transcript_processed --number_cell 200900 --partition 1 --dataname Xenium_V1_Human_Ovary_Cancer_FF_xe_outs
 
 
 

@@ -202,7 +202,12 @@ class Spaformer(pl.LightningModule):
         """
         super().__init__()
         # self.batch_length = None
-        self.encoder = SpaEncoder(dim=dim_model , num_layers=nlayers, groups=dim_model, num_heads=nheads, bpp_size = context_length, bpp = bpp, bpp_scale=bpp_scale)
+        # print("effective_batch_size:", effective_batch_size)
+        if outer_config["input_mode"] == "pair":
+            effective_batch_size = outer_config["batch_size"]*(outer_config["num_positives_per_query"]+outer_config["num_hard_negatives_per_query"]+outer_config["num_easy_negatives_per_query"])
+        elif outer_config["input_mode"] == "single":
+            effective_batch_size = outer_config["batch_size"]
+        self.encoder = SpaEncoder(dim=dim_model , num_layers=nlayers, groups=dim_model, num_heads=nheads, bpp_size = context_length, bpp = bpp, bpp_scale=bpp_scale, flash_attn=outer_config["flash_attn"])
         # As in HuggingFace
         # The prediction head for each masked token
         self.classifier_head = nn.Linear(dim_model, n_tokens+n_atokens, bias=False)
@@ -272,7 +277,7 @@ class Spaformer(pl.LightningModule):
         token_embedding = self.embeddings(x) # batch x (context_length) x dim_model
         #adding the token type embeddings
         #get the first sep site
-
+        print("sequence length:", token_embedding.shape[1])
         token_embedding += self.token_type_embeddings(token_type_ids)
         if self.outer_config["spatial_embedding"]:
             token_embedding += self.spatialembeds(x)
@@ -707,6 +712,16 @@ class Spaformer(pl.LightningModule):
             if isinstance(m, nn.Linear):
                 init.xavier_normal_(m.weight)
                 init.zeros_(m.bias)
+
+    def on_load_checkpoint(self, checkpoint):
+        src_sd = checkpoint["state_dict"]
+        import pdb; pdb.set_trace()
+        filtered_sd, _, _ = filter_state_dict_by_shape(
+            src_sd, self
+        )
+
+        checkpoint["state_dict"] = filtered_sd
+
 
 
 class CosineWarmupScheduler(optim.lr_scheduler._LRScheduler):

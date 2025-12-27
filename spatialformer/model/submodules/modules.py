@@ -1,5 +1,4 @@
 from typing import Optional
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -14,6 +13,8 @@ sys.path.append(p_path)
 from layer_modules import DropPath, ScaleBiasLayer
 from masked_batchnorm import MaskedBatchNorm1d
 from masked_conv import MaskedConv1d
+from flash_attn import flash_attn_func, flash_attn_varlen_func
+from flash_attn.bert_padding import pad_input, unpad_input
 
 def get_act_fn(activation):
     if activation == 'swish':
@@ -160,11 +161,132 @@ class AltAttention(nn.Module):
         # x = self.proj_drop(x)
         return x
 
+class FlashAttentionV2ALiBiWithMask(nn.Module):
+    """
+    FlashAttention v2 with ALiBi and padding mask support.
+    """
+    def __init__(self, dim, num_heads, dropout=0.0):
+        super().__init__()
+        self.num_heads = num_heads
+        self.head_dim = dim // num_heads
+        self.attn_score = None
+        assert dim % num_heads == 0
+        
+        self.qkv = nn.Linear(dim, dim * 3, bias=True)
+        self.proj = nn.Linear(dim, dim, bias=True)
+        self.dropout = dropout
+        # import pdb; pdb.set_trace()
+        self.register_buffer(
+            '_alibi_slopes_base',
+            self._build_alibi_slopes(num_heads),
+            persistent=False
+        )
+    
+    def _build_alibi_slopes(self, num_heads):
+        def get_slopes(n):
+            def get_slopes_power_of_2(n):
+                start = 2 ** (-(2 ** -(torch.log2(torch.tensor(n, dtype=torch.float32)) - 3)))
+                return start * torch.pow(start, torch.arange(n, dtype=torch.float32))
+            
+            if n & (n - 1) == 0:
+                return get_slopes_power_of_2(n)
+            else:
+                closest_power_of_2 = 2 ** int(torch.log2(torch.tensor(n, dtype=torch.float32)).floor())
+                return torch.cat([
+                    get_slopes_power_of_2(closest_power_of_2),
+                    get_slopes(2 * closest_power_of_2)[0::2][:n - closest_power_of_2]
+                ])
+        # import pdb; pdb.set_trace()
+        return get_slopes(num_heads)
+        
+    def _get_alibi_slopes(self, batch_size):
+        """Expand slopes to batch size: (num_heads,) -> (B, num_heads)"""
+        return self._alibi_slopes_base.unsqueeze(0).expand(batch_size, -1).contiguous()
+    
+    def forward(self, x, mask=None, alibi_bias=None):
+        """
+        Args:
+            x: (B, N, C) input tensor
+            mask: (B, N) boolean mask where True = valid, False = padding
+        
+        Returns:
+            (B, N, C) output tensor
+        """
+        B, N, C = x.shape
+        # import pdb; pdb.set_trace()
+        qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, self.head_dim)
+        q, k, v = qkv.unbind(dim=2)
+        # import pdb; pdb.set_trace()
+        if mask is None:
+            # No mask - simple path
+            attn_output = flash_attn_func(
+                q, k, v,
+                dropout_p=self.dropout if self.training else 0.0,
+                causal=False,
+                alibi_slopes=self.alibi_slopes
+            )
+        else:
+            # With mask - use variable length
+            attn_output = self._forward_with_mask(q, k, v, mask, B, N)
+        
+        attn_output = attn_output.reshape(B, N, C)
+        return self.proj(attn_output)
+    
+    def _forward_with_mask(self, q, k, v, mask, B, N):
+        """Handle masked attention using variable length."""
+        if mask.dtype != torch.bool:
+            mask = mask.bool()
+        # import pdb; pdb.set_trace()
+        # Get sequence lengths
+        seqlens = mask.sum(dim=1).to(torch.int32)
+        max_seqlen = seqlens.max().item()
+        # import pdb; pdb.set_trace()
+        # Cumulative sequence lengths
+        cu_seqlens = torch.zeros(B + 1, dtype=torch.int32, device=q.device)
+        cu_seqlens[1:] = seqlens.cumsum(dim=0)
+        # import pdb; pdb.set_trace()
+        # Flatten and filter
+        q_flat = q.reshape(B * N, self.num_heads, self.head_dim)
+        k_flat = k.reshape(B * N, self.num_heads, self.head_dim)
+        v_flat = v.reshape(B * N, self.num_heads, self.head_dim)
+        mask_flat = mask.reshape(B * N)
+        # import pdb; pdb.set_trace()
+        q_unpad = q_flat[mask_flat]
+        k_unpad = k_flat[mask_flat]
+        v_unpad = v_flat[mask_flat]
+        # FlashAttention with ALiBi on unpadded sequences
+        alibi_slopes = self._get_alibi_slopes(B)
+        # import pdb; pdb.set_trace()
+        attn_output_unpad = flash_attn_varlen_func(
+            q_unpad, k_unpad, v_unpad,
+            cu_seqlens_q=cu_seqlens,
+            cu_seqlens_k=cu_seqlens,
+            max_seqlen_q=max_seqlen,
+            max_seqlen_k=max_seqlen,
+            dropout_p=0.0,
+            causal=False,
+            alibi_slopes=alibi_slopes
+        )
+        # import pdb; pdb.set_trace()
+        # Pad back
+        attn_output = torch.zeros(B * N, self.num_heads, self.head_dim,
+                                   dtype=q.dtype, device=q.device)
+        attn_output[mask_flat] = attn_output_unpad
+        attn_output = attn_output.reshape(B, N, self.num_heads, self.head_dim)
+        # import pdb; pdb.set_trace()
+        return attn_output
+
+
 class AltBlock(nn.Module):
-    def __init__(self, dim=256, num_heads=4, expand=4, attn_dropout=0.2, mlp_dropout=0.2, drop_path=0., activation='gelu', prenorm=True, **kwargs):
+    def __init__(self, dim=256, num_heads=4, expand=4, attn_dropout=0.2, mlp_dropout=0.2, drop_path=0., activation='gelu', prenorm=True, flash_attn=False, **kwargs):
         super().__init__(**kwargs)
+        self.flash_attn = flash_attn
         self.norm1 = nn.LayerNorm(dim)#MaskedBatchNorm1d(dim, momentum=0.05, channels_last=True)
-        self.self_attn = AltAttention(dim=dim,num_heads=num_heads,dropout=attn_dropout)
+        if not flash_attn:
+            self.self_attn = AltAttention(dim=dim,num_heads=num_heads,dropout=attn_dropout)
+        else:
+            self.self_attn = FlashAttentionV2ALiBiWithMask(dim=dim,num_heads=num_heads,dropout=attn_dropout)
+
         self.drop1 = DropPath(drop_path)
 
         self.norm2 = nn.LayerNorm(dim)#MaskedBatchNorm1d(dim, momentum=0.05, channels_last=True)

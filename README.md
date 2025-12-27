@@ -15,21 +15,21 @@ Spatial transcriptomics quantifies gene expression within its spatial context, s
 
 
 ## Updates
-- **Date:** 2025-12-27:
-- **Pretraining data scale-up:**
-  1. **Transcript count:** 3.3B → 4.5B  
-  2. **Cell count:** 13M → 17M  
-  3. **Slide count:** 61 → 71  
-  4. **Gene vocabulary size:** 1,922 → 6,036  
+## [2025-12-27]
+### 🚀 Data Scale-Up
+- Transcripts: **3.3B → 4.5B**
+- Cells: **13M → 17M**
+- Slides: **61 → 71**
+- Gene vocabulary: **1,922 → 6,036**
 
-- **Model and training updates:**
-  1. Introduced a new **edge-based data loader** with:
-     - distance-aware sampling  
-     - hard negative pairs  
-     - easy negative pairs  
-     - mixed continuous training  
-  2. Upgraded to **GraphSAGE v2**, compatible with 6,036 spatial embeddings  
-  3. Integrated **FlashAttention v2** to efficiently handle long input sequences  
+### 🧠 Model & Training
+- Added a new **edge-based dataloader** with:
+  - distance-aware sampling
+  - hard negative pairs
+  - easy negative pairs
+  - mixed continuous training
+- Upgraded to **GraphSAGE v2**, supporting 6,036 spatial embeddings
+- Integrated **FlashAttention v2** for efficient long-sequence processing
 
 
 

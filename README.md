@@ -23,12 +23,13 @@ Spatial transcriptomics quantifies gene expression within its spatial context, s
 - Gene vocabulary: **1,922 → 6,036**
 
 ### 🧠 Model & Training
-- Added a new **edge-based dataloader** with:
+- Added a new **edge-based dataloader**; [anchor with preselected index](https://huggingface.co/datasets/TerminatorJ/pairs_dataset) with:
   - distance-aware sampling
   - hard negative pairs
-  - easy negative pairs
-  - faiss-based nearest neighbors search
+  - easy negative pairs [cache-pairs]()
+  - faiss-based nearest neighbors search [cache-faiss]()
   - index-based storage for p/n pairs, which save large amount of memory usage
+  - 
 - Upgraded to **GraphSAGE v2**, supporting 6,036 spatial embeddings
 - Integrated **FlashAttention v2** for efficient long-sequence processing
 - Embedding size was enlarged according to the new gene vocabulary size

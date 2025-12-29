@@ -150,6 +150,8 @@ import scanpy as sc
 adata = sc.read_h5ad("./downstream/cell_cell_communication/data/covid_subsampled.h5ad")
 ```
 
+make sure the **"gene_name"** column is in the adata.var column names
+
 
 #### Single Input Mode
 ```python

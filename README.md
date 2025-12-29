@@ -34,6 +34,9 @@ Spatial transcriptomics quantifies gene expression within its spatial context, s
 - Integrated **FlashAttention v2** for efficient long-sequence processing
 - Embedding size was enlarged according to the new gene vocabulary size
 
+### 🧠 Prediction
+- Aligning everything of prediction with the sp.tl.embed_data function 
+
 
 
 

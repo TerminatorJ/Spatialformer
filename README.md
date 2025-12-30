@@ -35,7 +35,7 @@ Spatial transcriptomics quantifies gene expression within its spatial context, s
 - Embedding size was enlarged according to the new gene vocabulary size
 
 ### 🧠 Prediction
-- Aligning everything of prediction with the sp.tl.embed_data function 
+- Aligning everything of prediction with the sp.tl.embed_data function, update sp.tl.embed_data to process variable lengths 
 
 
 

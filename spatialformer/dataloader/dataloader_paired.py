@@ -1450,7 +1450,9 @@ class PairwiseSpatialDataModule(pl.LightningDataModule):
     def _setup_single_mode(self):
         """Setup for SINGLE mode - simple train/test split."""
         logging.info("Setting up SINGLE mode...")
-        
+        if self.mode != "debug":
+            self._filter_ori_ds()
+        logging.info(f"Loaded single/original dataset with {len(self.dataset):,} cells, specify slide: {self.slide_name}")
         n_total = len(self.dataset)
         n_train = int(n_total * self.train_frac)
         
@@ -1469,6 +1471,17 @@ class PairwiseSpatialDataModule(pl.LightningDataModule):
     
     def _get_pairds_dir(self) -> str:
         return os.path.join(self.base_dir, "pairs_dataset")
+    def _filter_ori_ds(self):
+        if self.slide_name is not None:
+            sample_cell_index = get_index(self.dataset, "/scratch/project_465001820/Spatialformer/data/sample_cell_index")
+            sample_index = list(sample_cell_index[self.slide_name].values())
+            self.dataset = self.dataset.select(sample_index)
+           
+            # rng = np.random.default_rng(seed=42)
+            # indices = rng.choice(self.dataset.num_rows, size=20000, replace=False)
+            # self.dataset = self.dataset.select(indices)
+        else:
+            pass
 
     def _filter_ds(self):
         if self.slide_name is not None:

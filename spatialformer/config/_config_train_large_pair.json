@@ -1,5 +1,5 @@
 {
-    "resume_from_local_checkpoint": "/scratch/project_465001820/Spatialformer/output/checkpoints/stepstep=0136000-traintrain_total_loss=-3.5065-valval_total_loss=0.0000.ckpt",
+    "resume_from_local_checkpoint": "/scratch/project_465001820/Spatialformer/output/checkpoints/stepstep=0154000-traintrain_total_loss=-2.3968-valval_total_loss=0.0000.ckpt",
     "resume_before_5k": false,
     "suffix": "arrow",
     "input_type": "pair",

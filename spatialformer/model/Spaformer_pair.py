@@ -918,8 +918,9 @@ class Spaformer(pl.LightningModule):
         pair_label = batch["pair_label"]
         attention_mask = batch['attention_mask']
         token_type_ids = batch["token_type_ids"]
-        # import pdb; pdb.set_trace()
-        predictions = self.forward(indices, adjmtx, attention_mask, token_type_ids)
+        sequence_length = batch["sequence_length"]
+
+        predictions = self.forward(indices, adjmtx, attention_mask, token_type_ids, sequence_length)
         spa_predictions = predictions['spa_prediction']
         pair_predictions = predictions['pair_prediction']
         return spa_predictions, adjmtx, pair_predictions, pair_label
@@ -1035,7 +1036,8 @@ class Spaformer(pl.LightningModule):
         indices = batch["indices"].to(self.device)
         attention_mask = batch["attention_mask"].to(self.device)
         token_type_ids = batch["token_type_ids"].to(self.device)
-        predictions = self.forward(indices, False, attention_mask, token_type_ids)
+        sequence_length = batch["sequence_length"].to(self.device)
+        predictions = self.forward(indices, False, attention_mask, token_type_ids, sequence_length)
         if not pair_prediction:
             if not co_prediction:
                 hidden_repr = [predictions["transformer_output"][i] for i in layers]
@@ -1045,8 +1047,28 @@ class Spaformer(pl.LightningModule):
             elif co_prediction:
                 hidden_repr = [predictions["transformer_output"][i] for i in layers]
                 spa_prediction = predictions["spa_prediction"]#adj matrix
-                probabilities = torch.nn.functional.softmax(spa_prediction, dim=0)
-                return hidden_repr, probabilities
+                #getting paired probabilities
+                block1_list = spa_prediction['block1_list']
+                block2_list = spa_prediction['block2_list']
+                seq_lengths = spa_prediction['seq_lengths']
+                B = spa_prediction['batch_size']
+                pred_blocks = []
+                for b in range(B):
+                    L1 = seq_lengths[b, 0].item()
+                    L2 = seq_lengths[b, 1].item()
+                    # Process Block 1
+                    if L1 > 0:
+                        pred_block1 = block1_list[b]  # [L1, L1]
+                    else:
+                        pred_block1 = []
+                    # Process Block 2
+                    if L2 > 0:
+                        pred_block2 = block2_list[b]  # [L2, L2]
+                    else:
+                        pred_block2 = []
+                    pred_blocks.append([pred_block1, pred_block2])
+                # probabilities1 = torch.nn.functional.softmax(pred_blocks, dim=0)
+                return hidden_repr, pred_blocks
 
         else:
             

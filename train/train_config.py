@@ -243,22 +243,7 @@ class preparation:
                             gradient_clip_val=1,
                             gradient_clip_algorithm="norm",
                             accumulate_grad_batches = self.model_config['accumulate_grad_batches'])
-        # trainer = pl.Trainer(
-        #         logger=logger,
-        #         accelerator="cpu",
-        #         devices=1,                     # ✅ must be int
-        #         max_epochs=self.model_config["max_epochs"],
-        #         strategy="auto",               # or None
-        #         num_nodes=1,
-        #         max_steps=self.model_config["total_step"],
-        #         log_every_n_steps=50,
-        #         val_check_interval=2000,
-        #         default_root_dir=self.output_dir,
-        #         callbacks=callbacks,
-        #         precision="bf16",                  # ✅ safest on CPU
-        #         gradient_clip_val=1.0,
-        #         gradient_clip_algorithm="norm",
-        #     )
+
         return trainer
 
     def prepare_extended_checkpoint(self, model, ckpt_path, old_size=1950, new_size=6065):
@@ -397,20 +382,34 @@ class preparation:
     
     @property
     def pre_pred_dataset(self):
-        with open("/scratch/project_465001820/spatialformer/spatialformer/tokenizer/motif_tokens.json", 'r') as json_file:
-            motif_dict = json.load(json_file)
-            #as the same format to fetch columns
-            motifs = sorted(list(motif_dict.keys()))
-        columns = ["Full_Tokens", "centroid_x", "centroid_y", "Sample_Names", "Rows", "Cols", "Data", "Shape"]
-        import pdb; pdb.set_trace()
-        datamodule = MerlinDataModuleDistributed(path=self.datapath, 
-                        columns=columns,
+        #as the same format to fetch columns
+        if self.input_type not in ["single", "pair"]:
+            logging.error(f"Invalid input_type: {self.input_type}. Must be 'single' or 'pairwise'.")
+
+
+        datamodule = PairwiseSpatialDataModule(path=self.datapath, 
+                        suffix=self.model_config['suffix'],
                         train_frac=self.model_config['train_frac'],
                         batch_size=self.model_config['batch_size'],
-                        world_size=self.pre_trainer.world_size,
-                        drop_last=True)
-        import pdb; pdb.set_trace()              
-        return datamodule
+                        num_workers=min(cpus_per_task,64),
+                        positive_threshold=self.model_config["positive_threshold"],
+                        hard_negative_min=self.model_config['hard_negative_min'],
+                        hard_negative_max=self.model_config["hard_negative_max"],
+                        num_positives_per_query=self.model_config["num_positives_per_query"],  # Sample N positives per query
+                        num_hard_negatives_per_query=self.model_config["num_hard_negatives_per_query"],
+                        num_easy_negatives_per_query=self.model_config["num_easy_negatives_per_query"],
+                        use_gpu_faiss=False,
+                        pin_memory=False,
+                        persistent_workers=False,
+                        input_type=self.input_type,
+                        use_cuda_in_collator=False,
+                        num_precompute_workers=80,  
+                        slide_name=self.model_config["slide_name"],
+                        no_sparse=self.model_config["no_sparse"]
+                        )
+
+ 
+        return datamodule           
     
     def train_model(self):
         model = self.pre_model

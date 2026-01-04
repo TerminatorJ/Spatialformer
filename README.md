@@ -35,7 +35,10 @@ Spatial transcriptomics quantifies gene expression within its spatial context, s
 - Embedding size was enlarged according to the new gene vocabulary size
 
 ### 🧠 Prediction
-- Aligning everything of prediction with the sp.tl.embed_data function, update sp.tl.embed_data to process variable lengths 
+- Aligning everything of prediction with the sp.tl.embed_data function, update sp.tl.embed_data to process variable lengths
+
+### 🧠 Embedding extraction
+- The embeddings can be extracted more efficient with larger batch size and representative sequence length.
 
 
 
@@ -188,7 +191,10 @@ embed_adata = sp.tl.embed_data(adata,
                             mode = "pair",
                             left_cell = ["20532-0-1-0-1", "222101-0-0-1"],
                             right_cell = ["483188-0-0-1", "513429-0-0-1"],
-                            num_workers = 8
+                            num_workers = 8,
+                            gene_median_path = "/scratch/project_465001820/Spatialformer/data/gene_median.pkl",
+                            resume_before_5k = False,
+                            max_len=300
                             )
 ```
 
@@ -205,6 +211,9 @@ embed_adata = sp.tl.embed_data(adata,
 | left_cell | array_like | A list of cell IDs representing the query cells.|
 | right_cell | array_like | A list of cell IDs representing the key cells. |
 | num_workers | integer | The number of CPU cores to load the data. This value should match the number of workers specified in the data loader.|
+| gene_median_path | string | A path that contains the technical median for each genes used for pretraining. |
+| resume_before_5k | bool | Whether to use the ckp from the small panel. Set "True" if use the small panel ckp, while "False" to use the ckp with the 5k Xenium panel. |
+| max_len | integer | The max length for each sequence that is taken into account. This default value is set as None use all genes. If you have a lot of pair-wise sequence to predict, we highly recommed you to set this as 500 for each sequence because it will run extremely more faster. |
 
 
 If the input data is a huggingface dataset, we have built a huggingface specified dataloader only for inference step:

@@ -1633,6 +1633,18 @@ class PairwiseSpatialDataModule(pl.LightningDataModule):
             drop_last=self.drop_last,
             # prefetch_factor=2 if self.num_workers > 0 else None,
         )
+        # return DataLoader(
+        #     dataset,
+        #     batch_size=self.batch_size,
+        #     shuffle=do_shuffle,
+        #     num_workers=0,#test
+        #     collate_fn=collator,
+        #     pin_memory=False,
+        #     # persistent_workers=self.persistent_workers,
+        #     sampler=sampler,
+        #     drop_last=self.drop_last,
+        #     # prefetch_factor=2 if self.num_workers > 0 else None,
+        # )
     
     def train_dataloader(self) -> DataLoader:
         if self.input_type == "single":

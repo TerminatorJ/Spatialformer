@@ -2,10 +2,10 @@
 from data_loader import *
 import json
 from datasets import load_from_disk, concatenate_datasets, load_dataset
-from train import manual_train_fm
+from train_config import manual_train_fm
 import sys
 from sklearn.model_selection import train_test_split
-sys.path.append("/scratch/project_465001027/Spatialformer/model")
+sys.path.append("/scratch/project_465001820/Spatialformer/model")
 from Spaformer_ft import FTNetwork
 import pytorch_lightning as pl
 from pytorch_lightning.loggers import WandbLogger

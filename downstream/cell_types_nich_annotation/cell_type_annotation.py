@@ -92,7 +92,7 @@ def initialize(train_X_path, train_label_path, test_X_path, test_label_path, val
 
     # Initialize the model
     input_size = input_size
-    hidden_size = 256
+    hidden_size = 64
     output_size = len(np.unique(train_labels))  # Number of classes
     model = SimpleMLP(input_size, hidden_size, output_size)
 
@@ -264,12 +264,12 @@ if __name__ == "__main__":
         # test_label_path = '/scratch/project_465001820/Spatialformer/downstream/cell_types_nich_annotation/data/CRC_VisiumHD_adata_test_label.npy'
         # val_X_path = '/scratch/project_465001820/Spatialformer/downstream/cell_types_nich_annotation/data/CRC_VisiumHD_adata_val_spatialformer_gene_Colon_Disease.npy'
         # val_label_path = '/scratch/project_465001820/Spatialformer/downstream/cell_types_nich_annotation/data/CRC_VisiumHD_adata_val_label.npy'
-        train_X_path = "/scratch/project_465001820/Spatialformer/downstream/cell_types_nich_annotation/data/spa_single_ct_concat_train_embed_5k_cls.npy"
-        train_label_path = '/scratch/project_465001820/Spatialformer/downstream/cell_types_nich_annotation/data/spa_train_ct.npy'
-        test_X_path = '/scratch/project_465001820/Spatialformer/downstream/cell_types_nich_annotation/data/spa_single_ct_concat_test_embed_5k_cls.npy'
-        test_label_path = '/scratch/project_465001820/Spatialformer/downstream/cell_types_nich_annotation/data/spa_test_ct.npy'
-        val_X_path = '/scratch/project_465001820/Spatialformer/downstream/cell_types_nich_annotation/data/spa_single_ct_concat_val_embed_5k_cls.npy'
-        val_label_path = '/scratch/project_465001820/Spatialformer/downstream/cell_types_nich_annotation/data/spa_val_ct.npy'
+        train_X_path = "/scratch/project_465001820/Spatialformer_main_practice/downstream/cell_types_nich_annotation/data/spa_single_ct_concat_train_embed2.npy"
+        train_label_path = '/scratch/project_465001820/Spatialformer_main_practice/downstream/cell_types_nich_annotation/data/spa_train_ct.npy'
+        test_X_path = '/scratch/project_465001820/Spatialformer_main_practice/downstream/cell_types_nich_annotation/data/spa_single_ct_concat_test_embed2.npy'
+        test_label_path = '/scratch/project_465001820/Spatialformer_main_practice/downstream/cell_types_nich_annotation/data/spa_test_ct.npy'
+        val_X_path = '/scratch/project_465001820/Spatialformer_main_practice/downstream/cell_types_nich_annotation/data/spa_single_ct_concat_val_embed2.npy'
+        val_label_path = '/scratch/project_465001820/Spatialformer_main_practice/downstream/cell_types_nich_annotation/data/spa_val_ct.npy'
 
     if args.n_tasks == 1:
         if args.objective == "spatial":
@@ -280,12 +280,18 @@ if __name__ == "__main__":
             val_X_path = '/home/sxr280/Spatialformer/data/val_embedding_True_False_8_0.1_1_spatial.npy'
             val_label_path = '/home/sxr280/Spatialformer/data/val_labels_True_False_8_0.1_1_spatial.npy'
         elif args.objective == "scFoundataion":
-            train_X_path = '/scratch/project_465001820/Spatialformer/downstream/cell_types_nich_annotation/data/CRC_VisiumHD_adata_train_01B-resolution_singlecell_cell_embedding_f1_resolution.npy'
-            train_label_path = '/scratch/project_465001820/Spatialformer/downstream/cell_types_nich_annotation/data/CRC_VisiumHD_adata_train_label.npy'
-            test_X_path = '/scratch/project_465001820/Spatialformer/downstream/cell_types_nich_annotation/data/CRC_VisiumHD_adata_test_01B-resolution_singlecell_cell_embedding_f1_resolution.npy'
-            test_label_path = '/scratch/project_465001820/Spatialformer/downstream/cell_types_nich_annotation/data/CRC_VisiumHD_adata_test_label.npy'
-            val_X_path = '/scratch/project_465001820/Spatialformer/downstream/cell_types_nich_annotation/data/CRC_VisiumHD_adata_val_01B-resolution_singlecell_cell_embedding_f1_resolution.npy'
-            val_label_path = '/scratch/project_465001820/Spatialformer/downstream/cell_types_nich_annotation/data/CRC_VisiumHD_adata_val_label.npy'
+            # train_X_path = '/scratch/project_465001820/Spatialformer/downstream/cell_types_nich_annotation/data/CRC_VisiumHD_adata_train_01B-resolution_singlecell_cell_embedding_f1_resolution.npy'
+            # train_label_path = '/scratch/project_465001820/Spatialformer/downstream/cell_types_nich_annotation/data/CRC_VisiumHD_adata_train_label.npy'
+            # test_X_path = '/scratch/project_465001820/Spatialformer/downstream/cell_types_nich_annotation/data/CRC_VisiumHD_adata_test_01B-resolution_singlecell_cell_embedding_f1_resolution.npy'
+            # test_label_path = '/scratch/project_465001820/Spatialformer/downstream/cell_types_nich_annotation/data/CRC_VisiumHD_adata_test_label.npy'
+            # val_X_path = '/scratch/project_465001820/Spatialformer/downstream/cell_types_nich_annotation/data/CRC_VisiumHD_adata_val_01B-resolution_singlecell_cell_embedding_f1_resolution.npy'
+            # val_label_path = '/scratch/project_465001820/Spatialformer/downstream/cell_types_nich_annotation/data/CRC_VisiumHD_adata_val_label.npy'
+            train_X_path = '/scratch/project_465001820/Spatialformer_main_practice/downstream/cell_types_nich_annotation/data/VUILD110_0.1fra_train_celltype_01B-resolution_singlecell_cell_embedding_f1_resolution.npy'
+            train_label_path = '/scratch/project_465001820/Spatialformer_main_practice/downstream/cell_types_nich_annotation/data/spa_train_ct.npy'
+            test_X_path = '/scratch/project_465001820/Spatialformer_main_practice/downstream/cell_types_nich_annotation/data/VUILD110_0.1fra_test_celltype_01B-resolution_singlecell_cell_embedding_f1_resolution.npy'
+            test_label_path = '/scratch/project_465001820/Spatialformer_main_practice/downstream/cell_types_nich_annotation/data/spa_test_ct.npy'
+            val_X_path = '/scratch/project_465001820/Spatialformer_main_practice/downstream/cell_types_nich_annotation/data/VUILD110_0.1fra_val_celltype_01B-resolution_singlecell_cell_embedding_f1_resolution.npy'
+            val_label_path = '/scratch/project_465001820/Spatialformer_main_practice/downstream/cell_types_nich_annotation/data/spa_val_ct.npy'
         elif args.objective == "scGPT":
             train_X_path = '/scratch/project_465001820/Spatialformer/downstream/cell_types_nich_annotation/data/CRC_VisiumHD_adata_train_embeddings_scGPT.npy'
             train_label_path = '/scratch/project_465001820/Spatialformer/downstream/cell_types_nich_annotation/data/CRC_VisiumHD_adata_train_label.npy'

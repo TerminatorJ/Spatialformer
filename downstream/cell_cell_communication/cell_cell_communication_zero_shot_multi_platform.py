@@ -14,7 +14,7 @@
 
 import sys
 sys.path.append("/scratch/project_465001820/Spatialformer")
-sys.path.append("/scratch/project_465001820/Spatialformer/scripts")
+sys.path.append("/scratch/project_465001820/Spatialformer/train")
 sys.path.append("/scratch/project_465001820/Spatialformer/spatialformer/")
 import scanpy as sc
 import numpy as np
@@ -45,6 +45,7 @@ def main(cell_by_gene_path = "/scratch/project_465001820/Spatialformer/data/Xeni
          sample_name = "breast_cancer",
          fine_tune_mode = "zero_shot",
          model_ckp_path = "/scratch/project_465001820/Spatialformer/output/checkpoints/step=0096000-train_total_loss=-2.9351-val_total_loss=0.0000.ckpt",
+         config_path = "None",
          tissue = "Breast",
          condition = "Disease",
          max_cells = 100000):
@@ -73,7 +74,6 @@ def main(cell_by_gene_path = "/scratch/project_465001820/Spatialformer/data/Xeni
     except ValueError:
         print("Index is already in integer format or cannot be converted.")
     print(adata)
-
     #add the spatial coordinates to the anndata
     
 
@@ -102,8 +102,8 @@ def main(cell_by_gene_path = "/scratch/project_465001820/Spatialformer/data/Xeni
     # In[10]:
     # import pdb; pdb.set_trace()
 
-
-    config_path = "/scratch/project_465001820/Spatialformer/config/_config_fine_tune_probe.json"
+    # import pdb; pdb.set_trace()
+    # config_path = "/scratch/project_465001820/Spatialformer/config/_config_fine_tune_probe.json"
     with open(config_path, 'r') as json_file:
         config = json.load(json_file)
     #whole slides ckp
@@ -111,7 +111,7 @@ def main(cell_by_gene_path = "/scratch/project_465001820/Spatialformer/data/Xeni
     # model_ckp_path = "/scratch/project_465001820/Spatialformer/output/checkpoints/step=0044000-train_total_loss=-1.3226-val_total_loss=0.2488.ckpt"
     # model_ckp_path = "/scratch/project_465001820/Spatialformer/output/checkpoints/step=0100000-train_total_loss=-2.2727-val_total_loss=0.0000.ckpt"
 
-
+    
     # Getting the dataloader
 
     test_dataloader = embed_data(adata,
@@ -128,12 +128,12 @@ def main(cell_by_gene_path = "/scratch/project_465001820/Spatialformer/data/Xeni
                 num_workers = 8,
                 reveal_name = False
                 )
-
     # Run the model to get the predictions
     
     Finetune = FineTune(config, model_ckp_path, sample_name, radius, fine_tune_mode, wandb = True, strategy = "ddp")
     probe_model = Finetune.probe_model
     results = Finetune.test(probe_model, test_dataloader)
+    import pdb; pdb.set_trace()
     wandb.finish()
     return results
    
@@ -160,6 +160,8 @@ if __name__ == "__main__":
                         help='The condition of the input samples')
     parser.add_argument('--max_cells', type=int, default="100000",
                         help='The max number of cells to use. This is different from the zero-shot cell size. It is used to limit the number of cells in the dataset. Default is 100000.')
+    parser.add_argument('--config_path', type=str, default=None,
+                        help="The configuration path of the model")
 
     
     
@@ -175,6 +177,11 @@ if __name__ == "__main__":
     #running the fine-tuning script
     
     all_results = {}
+    #ckp from small panel
+    # model_ckp_path = "/scratch/project_465001820/Spatialformer/output/checkpoints/step=0096000-train_total_loss=-2.9351-val_total_loss=0.0000.ckpt"
+    #ckp from +5k panel
+    # model_ckp_path = "/scratch/project_465001820/Spatialformer/output/checkpoints/stepstep=0176000-traintrain_total_loss=-2.8414-valval_total_loss=0.0000.ckpt"
+
     for r in radius:
         print(f"Running fine-tuning for radius: {r}")
         results = main(cell_by_gene_path = cell_by_gene_path,
@@ -184,6 +191,7 @@ if __name__ == "__main__":
             sample_name = sample_name,
             fine_tune_mode = fine_tune_mode,
             model_ckp_path = args.checkpoint,
+            config_path = args.config_path,
             tissue = args.tissue,
             condition = args.condition,
             max_cells = max_cells)
@@ -206,23 +214,23 @@ if __name__ == "__main__":
     print(mean_values)
 
     # Save to CSV file
-    mean_values.to_csv(f'/scratch/project_465001820/Spatialformer/downstream/cell_cell_communication/results/{sample_name}_{fine_tune_mode}_mean_values_per_radius.csv', index=True)  # Include index if you want to keep fold numbers
-    df_results.to_csv(f'/scratch/project_465001820/Spatialformer/downstream/cell_cell_communication/results/{sample_name}_{fine_tune_mode}_all_values.csv', index=True)
+    mean_values.to_csv(f'/scratch/project_465001820/Spatialformer/downstream/cell_cell_communication/results/{sample_name}_{fine_tune_mode}_mean_values_per_radius2.csv', index=True)  # Include index if you want to keep fold numbers
+    df_results.to_csv(f'/scratch/project_465001820/Spatialformer/downstream/cell_cell_communication/results/{sample_name}_{fine_tune_mode}_all_values2.csv', index=True)
 
          
 #default scripts
 #for the Xenium breast cancer dataset, we can run the script with the following command:
-# python cell_cell_communication_zero_shot_breast.py --radius 10 20 30 50 80 100 120
+# python cell_cell_communication_zero_shot_multi_platform.py --radius 10 20 30 50 80 100 120
 
 #for Xenium colon dataset, we can run the script with the following command:
-# python cell_cell_communication_zero_shot_breast.py --radius 10 20 30 50 80 100 120 --fine_tune_mode zero_shot --cell_by_gene_path /scratch/project_465001820/Spatialformer/data/Xenium_CRC/cell_feature_matrix.h5 --cell_meta_path /scratch/project_465001820/Spatialformer/data/Xenium_CRC/cells.parquet --sample_name Xenium_CRC --zero_shot_cell_size 500 --tissue Colon --condition Disease
+# python cell_cell_communication_zero_shot_multi_platform.py --radius 10 20 30 50 80 100 120 --fine_tune_mode zero_shot --cell_by_gene_path /scratch/project_465001820/Spatialformer/data/Xenium_CRC/cell_feature_matrix.h5 --cell_meta_path /scratch/project_465001820/Spatialformer/data/Xenium_CRC/cells.parquet --sample_name Xenium_CRC --zero_shot_cell_size 500 --tissue Colon --condition Disease
 
 
 #for MERFISH lung dataset, we can run the script with the following command:
-# python cell_cell_communication_zero_shot_breast.py --radius 10 --fine_tune_mode zero_shot --cell_by_gene_path /scratch/project_465001820/Spatialformer/data/MERFISH_Lung/HumanLungCancerPatient1_cell_by_gene.csv --cell_meta_path /scratch/project_465001820/Spatialformer/data/MERFISH_Lung/HumanLungCancerPatient1_cell_metadata.csv --sample_name MERFISH_Lung --zero_shot_cell_size 500 --tissue Lung --condition Disease
+# python cell_cell_communication_zero_shot_multi_platform.py --radius 10 20 30 50 80 100 120 --fine_tune_mode zero_shot --cell_by_gene_path /scratch/project_465001820/Spatialformer_main_practice/data/MERFISH_Lung/HumanLungCancerPatient1_cell_by_gene.csv --cell_meta_path /scratch/project_465001820/Spatialformer_main_practice/data/MERFISH_Lung/HumanLungCancerPatient1_cell_metadata.csv --sample_name MERFISH_Lung --zero_shot_cell_size 500 --tissue Lung --condition Disease --checkpoint /scratch/project_465001820/Spatialformer/output/checkpoints/stepstep=0176000-traintrain_total_loss=-2.8414-valval_total_loss=0.0000.ckpt --config_path /scratch/project_465001820/Spatialformer/spatialformer/config/_config_fine_tune_probe.json
 
 #for MERFISH colon dataset, we can run the script with the following command:
-# python cell_cell_communication_zero_shot_breast.py --radius 10 20 30 50 80 100 120 --fine_tune_mode zero_shot --cell_by_gene_path /scratch/project_465001820/Spatialformer/data/MERFISH_Colon/HumanColonCancerPatient1_cell_by_gene.csv --cell_meta_path /scratch/project_465001820/Spatialformer/data/MERFISH_Colon/HumanColonCancerPatient1_cell_metadata.csv --sample_name MERFISH_Colon --zero_shot_cell_size 500 --tissue Colon --condition Disease
+# python cell_cell_communication_zero_shot_multi_platform.py --radius 10 20 30 50 80 100 120 --fine_tune_mode zero_shot --cell_by_gene_path /scratch/project_465001820/Spatialformer/data/MERFISH_Colon/HumanColonCancerPatient1_cell_by_gene.csv --cell_meta_path /scratch/project_465001820/Spatialformer/data/MERFISH_Colon/HumanColonCancerPatient1_cell_metadata.csv --sample_name MERFISH_Colon --zero_shot_cell_size 500 --tissue Colon --condition Disease
 
 #for MERFISH breast dataset, we can run the script with the following command:
-# python cell_cell_communication_zero_shot_breast.py --radius 10 20 30 50 80 100 120 --fine_tune_mode zero_shot --cell_by_gene_path /scratch/project_465001820/Spatialformer/data/MERFISH_Breast/HumanBreastCancerPatient1_cell_by_gene.csv --cell_meta_path /scratch/project_465001820/Spatialformer/data/MERFISH_Breast/HumanBreastCancerPatient1_cell_metadata.csv --sample_name MERFISH_Breast --zero_shot_cell_size 500 --tissue Breast --condition Disease
+# python cell_cell_communication_zero_shot_multi_platform.py --radius 10 20 30 50 80 100 120 --fine_tune_mode zero_shot --cell_by_gene_path /scratch/project_465001820/Spatialformer/data/MERFISH_Breast/HumanBreastCancerPatient1_cell_by_gene.csv --cell_meta_path /scratch/project_465001820/Spatialformer/data/MERFISH_Breast/HumanBreastCancerPatient1_cell_metadata.csv --sample_name MERFISH_Breast --zero_shot_cell_size 500 --tissue Breast --condition Disease

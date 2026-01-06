@@ -170,6 +170,107 @@ def valid_mean_embedding(
     
     return cell_embedding
 
+def prepare_extended_checkpoint(model, ckpt_path, old_size=1950, new_size=6065):
+        """
+        Extend tensors and rebuild optimizer param_groups for model architecture changes.
+        """
+        ckpt = torch.load(ckpt_path, map_location='cpu')
+        
+        model.cpu()
+        model_state = model.state_dict()
+        
+        # Count actual parameters (not buffers)
+        total_params = sum(1 for _ in model.parameters())
+        
+        logging.info(f"[INFO] Model has {total_params} parameters, {len(model_state)} state_dict keys")
+        
+        # ============================================
+        # 1. Fix state_dict
+        # ============================================
+        logging.info("[STATE_DICT] Fixing...")
+        new_state_dict = {}
+        
+        for key, new_param in model_state.items():
+            new_param = new_param.cpu().clone()
+            
+            if key in ckpt['state_dict']:
+                old_param = ckpt['state_dict'][key].cpu().clone()
+                
+                if old_param.shape == new_param.shape:
+                    new_state_dict[key] = old_param
+                elif old_param.shape[0] == old_size and new_param.shape[0] == new_size:
+                    logging.info(f"  [EXTEND] {key}: {old_param.shape} -> {new_param.shape}")
+                    if old_param.dim() == 2:
+                        new_param[:old_size, :] = old_param
+                    elif old_param.dim() == 1:
+                        new_param[:old_size] = old_param
+                    new_state_dict[key] = new_param
+                else:
+                    logging.info(f"  [SHAPE MISMATCH] {key}: {old_param.shape} -> {new_param.shape}")
+                    new_state_dict[key] = new_param
+            else:
+                logging.info(f"  [NEW] {key}")
+                new_state_dict[key] = new_param
+        
+        # Log deleted keys
+        for key in ckpt['state_dict']:
+            if key not in model_state:
+                logging.info(f"  [DELETED] {key}")
+        
+        ckpt['state_dict'] = new_state_dict
+        
+        # ============================================
+        # 2. Rebuild optimizer_states completely
+        # ============================================
+        logging.info(f"\n[OPTIMIZER] Rebuilding for {total_params} parameters...")
+        
+        # Extract old settings if available
+        old_settings = {
+            'lr': 0.001,
+            'betas': (0.9, 0.999),
+            'eps': 1e-08,
+            'weight_decay': 0,
+            'amsgrad': False,
+            'initial_lr': 0.001,
+        }
+        
+        if 'optimizer_states' in ckpt and ckpt['optimizer_states']:
+            opt_state = ckpt['optimizer_states'][0]
+            if 'param_groups' in opt_state and opt_state['param_groups']:
+                for k, v in opt_state['param_groups'][0].items():
+                    if k != 'params':
+                        old_settings[k] = v
+        
+        # Rebuild param_groups with correct count
+        new_param_group = old_settings.copy()
+        new_param_group['params'] = list(range(total_params))
+        
+        ckpt['optimizer_states'] = [
+            {
+                'state': {},
+                'param_groups': [new_param_group]
+            }
+        ]
+        logging.info(f"  [OK] Rebuilt with {total_params} params")
+        
+        # ============================================
+        # 3. Reset lr_schedulers
+        # ============================================
+        if 'lr_schedulers' in ckpt:
+            logging.info("[SCHEDULER] Resetting")
+            ckpt['lr_schedulers'] = []
+        
+        # ============================================
+        # 4. Save
+        # ============================================
+        logging.info(f"\n[INFO] Epoch: {ckpt.get('epoch', 0)}, Step: {ckpt.get('global_step', 0)}")
+        
+        new_ckpt_path = ckpt_path.replace('.ckpt', '_extended.ckpt')
+        torch.save(ckpt, new_ckpt_path)
+        logging.info(f"[SAVED] {new_ckpt_path}")
+        
+        return new_ckpt_path
+
 
 # =============================================================================
 # Main Embedding Function
@@ -192,7 +293,10 @@ def embed_data(
     pair_label: Optional[List[int]] = None,
     num_workers: int = 0,
     reveal_name: bool = False,
-    gene_median_path: Optional[str] = None
+    gene_median_path: Optional[str] = None,
+    max_len: int = None,
+    resume_before_5k: bool = None,
+    reverse_check: bool = None,
 ):
     """
     Generate Spatialformer embeddings for cells in an AnnData object.
@@ -248,7 +352,9 @@ def embed_data(
                      co-occurrence predictions
                      
         gene_median_path: Path to gene median expression file for normalization
-        
+        max_len: The max length of the input sequence
+        resume_before_5k: Bool, load the ckp before 5k
+        reverse_check: Bool, whether to check reverse pairs for positive prediction. The 5k panel model doesn't need this because it was pretrained via anchor based solution.
     Returns:
         For single mode:
             AnnData object with embeddings stored in adata.obsm["X_SpaF"]
@@ -288,6 +394,13 @@ def embed_data(
     model = manual_train_fm(config=config)
     
     # Load pretrained weights
+
+    if resume_before_5k:
+        # Prepare checkpoint with extended embeddings
+        logger.info(f"Loading the ckp before the 5k panel")
+        model_ckp_path = prepare_extended_checkpoint(model, model_ckp_path)
+
+
     checkpoint = torch.load(model_ckp_path, map_location=device)
     model.load_state_dict(checkpoint["state_dict"])
     
@@ -305,6 +418,7 @@ def embed_data(
     logger.info("Encoding data into batches...")
     
     if mode == "single":
+        model.input_type = "single"
         return _process_single_mode(
             adata=adata,
             model=model,
@@ -316,10 +430,12 @@ def embed_data(
             num_workers=num_workers,
             threshold=threshold,
             reveal_name_flag=reveal_name,
-            gene_median_path=gene_median_path
+            gene_median_path=gene_median_path,
+            max_len=max_len
         )
         
     elif mode == "pair":
+        model.input_type = "pair"
         return _process_pair_mode(
             adata=adata,
             model=model,
@@ -332,7 +448,9 @@ def embed_data(
             right_cell=right_cell,
             pair_label=pair_label,
             only_loader=only_loader,
-            gene_median_path=gene_median_path
+            gene_median_path=gene_median_path,
+            reverse_check=reverse_check,
+            max_len=max_len
         )
     else:
         raise ValueError(f"Unknown mode: {mode}. Use 'single' or 'pair'.")
@@ -349,7 +467,8 @@ def _process_single_mode(
     num_workers: int,
     threshold: float,
     reveal_name_flag: bool,
-    gene_median_path: str
+    gene_median_path: str,
+    max_len: int
 ):
     """
     Process single cells to generate embeddings.
@@ -364,7 +483,7 @@ def _process_single_mode(
         condition=condition, 
         gene_median_path=gene_median_path
     )
-    dataset = GeneExpressionDataset(adata, tokenizer)
+    dataset = GeneExpressionDataset(adata, tokenizer, max_len)
     dataloader = DataLoader(
         dataset, 
         batch_size=batch_size, 
@@ -460,7 +579,9 @@ def _process_pair_mode(
     right_cell: List[str],
     pair_label: List[int],
     only_loader: bool,
-    gene_median_path: str
+    gene_median_path: str,
+    reverse_check: bool,
+    max_len: int
 ):
     """
     Process cell pairs to predict relationships.
@@ -481,8 +602,9 @@ def _process_pair_mode(
         condition=condition, 
         gene_median_path=gene_median_path
     )
+
     dataset = GeneExpressionPairDataset(
-        adata, left_cell, right_cell, pair_label, tokenizer
+        adata, left_cell, right_cell, pair_label, tokenizer, max_len
     )
     dataloader = DataLoader(
         dataset, 
@@ -493,6 +615,13 @@ def _process_pair_mode(
         prefetch_factor=3, 
         persistent_workers=True
     )
+    # dataloader = DataLoader(
+    #     dataset, 
+    #     batch_size=batch_size, 
+    #     collate_fn=collate_fn, 
+    #     num_workers=0, 
+    #     pin_memory=True
+    # )
     
     # Option to return just the dataloader
     if only_loader:
@@ -505,38 +634,40 @@ def _process_pair_mode(
     with torch.no_grad():
         for batch_idx, batch in enumerate(tqdm(dataloader, desc="Processing pairs")):
             # Forward pass: get embeddings and pair predictions
-            last_hidden_repr, probabilities = model.get_embeddings(
+            last_hidden_repr1, probabilities = model.get_embeddings(
                 batch, 
                 layers=[-1], 
                 pair_prediction=True, 
                 co_prediction=False
             )
-            
             # Extract CLS embeddings
-            cls_embeddings = last_hidden_repr[0][:, 0]
-            all_embeddings.append(cls_embeddings)
-            
+            cls_embeddings = last_hidden_repr1[0][:, 0]
+            all_embeddings.append(cls_embeddings.detach().cpu())
+            # import pdb; pdb.set_trace()
             # Compute reverse predictions (swap cell order)
             # This helps verify prediction consistency
-            reversed_batch = rearrange_sentences(batch)
-            _, reverse_probabilities = model.get_embeddings(
-                reversed_batch, 
-                layers=[-1], 
-                pair_prediction=True, 
-                co_prediction=False
-            )
-            
-            # Combine forward and reverse predictions
-            confirmed_probs = [
-                process_bidirectional_predictions(fwd, rev) 
-                for fwd, rev in zip(probabilities, reverse_probabilities)
-            ]
-            confirmed_probs = torch.stack(confirmed_probs).detach().cpu().numpy()
-            all_probabilities.append(confirmed_probs)
-    
+            if reverse_check:
+                reversed_batch = rearrange_sentences(batch)
+                last_hidden_repr2, reverse_probabilities = model.get_embeddings(
+                    reversed_batch, 
+                    layers=[-1], 
+                    pair_prediction=True, 
+                    co_prediction=False
+                )
+                # import pdb; pdb.set_trace()
+                # Combine forward and reverse predictions
+                confirmed_probs = [
+                    process_bidirectional_predictions(fwd, rev) 
+                    for fwd, rev in zip(probabilities, reverse_probabilities)
+                ]
+                confirmed_probs = torch.stack(confirmed_probs).detach().cpu().numpy()
+                all_probabilities.append(confirmed_probs)
+            else:
+                all_probabilities.append(probabilities.detach().cpu())
+    # import pdb; pdb.set_trace()
     # Combine results
     combined_embeddings = torch.cat(all_embeddings, dim=0).detach().cpu().numpy()
-    
+
     return combined_embeddings, all_probabilities
 
 
@@ -618,19 +749,20 @@ def rearrange_sentences(batch: Dict[str, torch.Tensor]) -> Dict[str, torch.Tenso
         New batch with swapped cell order
     """
     batch_size = len(batch['indices'])
-    max_length = 500  # Fixed maximum sequence length
+    max_length = batch['indices'].shape[1]  # Fixed maximum sequence length
     sep_token = 1949  # Token ID for separator
-    
     # Initialize output tensors
     new_indices = torch.full((batch_size, max_length), 0, dtype=torch.int)
     new_attention_mask = torch.full((batch_size, max_length), 0, dtype=torch.int)
     new_token_types = torch.full((batch_size, max_length), 0, dtype=torch.int)
+    new_sequence_length = torch.full((batch_size, 2), 0, dtype=torch.int)
     
     indices = batch['indices']
     attention_masks = batch['attention_mask']
     token_types = batch['token_type_ids']
+    sequence_lengths = batch['sequence_length']
     
-    for i, (indice, attn_mask, token_type) in enumerate(zip(indices, attention_masks, token_types)):
+    for i, (indice, attn_mask, token_type, sequence_length) in enumerate(zip(indices, attention_masks, token_types, sequence_lengths)):
         # Find separator positions
         sep_positions = (indice == sep_token).nonzero(as_tuple=True)[0]
         
@@ -640,20 +772,22 @@ def rearrange_sentences(batch: Dict[str, torch.Tensor]) -> Dict[str, torch.Tenso
         
         mid_idx = sep_positions[0]  # First SEP (end of cell 1)
         end_idx = sep_positions[1]  # Second SEP (end of cell 2)
-        
         # Split sequence into components
         cls_token = indice[:1]                    # [CLS]
         sentence1 = indice[1:mid_idx + 1]         # [prefix1] [genes1] [SEP]
         sentence2 = indice[mid_idx + 1:end_idx + 1]  # [prefix2] [genes2] [SEP]
-        
+
         # Combine in reversed order: [CLS] + sentence2 + sentence1
         combined = torch.cat((cls_token, sentence2, sentence1))
+
+        length1 = sequence_length[0]
+        length2 = sequence_length[1]
+        new_length =  torch.tensor([[length2 + 1, length1 - 1]]) # + cls; -cls
         
         # Pad to max_length
         pad_length = max_length - combined.size(0)
         new_sequence = torch.cat((combined, torch.zeros(pad_length, dtype=torch.int)))
         new_indices[i, :] = new_sequence[:max_length]
-        
         # Attention mask stays the same (same valid length)
         new_attention_mask[i, :] = attn_mask
         
@@ -663,11 +797,14 @@ def rearrange_sentences(batch: Dict[str, torch.Tensor]) -> Dict[str, torch.Tenso
         pad_types = torch.full((pad_length,), 0)
         new_token_type = torch.cat((left_types, right_types, pad_types))
         new_token_types[i, :] = new_token_type[:max_length]
-    
+
+        new_sequence_length[i, :] = new_length
+        # import pdb; pdb.set_trace()
     return {
         "indices": new_indices,
         "attention_mask": new_attention_mask.bool(),
         "token_type_ids": new_token_types,
+        "sequence_length": new_sequence_length
     }
 
 
@@ -942,7 +1079,7 @@ class GeneExpressionDataset(Dataset):
         genes: Gene names array
     """
     
-    def __init__(self, adata, tokenizer: GeneTokenizer):
+    def __init__(self, adata, tokenizer: GeneTokenizer, max_len: None):
         """
         Initialize dataset from AnnData object.
         
@@ -951,9 +1088,11 @@ class GeneExpressionDataset(Dataset):
                 - X: Expression matrix (cells x genes)
                 - var["gene_name"]: Gene names
             tokenizer: Configured GeneTokenizer instance
+            max_len: The max length of the sequence
         """
         self.tokenizer = tokenizer
         self.mode = self.tokenizer.mode
+        self.max_len = max_len
         
         # Convert sparse matrix to dense if needed
         if sp.issparse(adata.X):
@@ -983,7 +1122,8 @@ class GeneExpressionDataset(Dataset):
         self.tokenizer.genes = self.genes
         
         tokens, prefix, end = self.tokenizer.encode(expression_vector)
-        
+        if self.max_len is not None:
+            tokens = tokens[:self.max_len]
         return tokens, prefix, end
 
 
@@ -1011,7 +1151,8 @@ class GeneExpressionPairDataset(Dataset):
         left_cells: List[str], 
         right_cells: List[str], 
         pair_label: List[int], 
-        tokenizer: GeneTokenizer
+        tokenizer: GeneTokenizer,
+        max_len: int
     ):
         """
         Initialize dataset for cell pair processing.
@@ -1022,13 +1163,14 @@ class GeneExpressionPairDataset(Dataset):
             right_cells: List of cell IDs for right side of pairs  
             pair_label: Binary labels (1=related, 0=not related)
             tokenizer: Configured GeneTokenizer instance
+            max_len: the max length for each sequence
         """
         self.tokenizer = tokenizer
         self.mode = self.tokenizer.mode
         self.pair_label = pair_label
         self.left_cells = left_cells
         self.right_cells = right_cells
-        
+        self.max_len = max_len
         # Map cell names to indices
         all_cell_names = list(adata.obs.index)
         self.left_indices = [all_cell_names.index(cell) for cell in left_cells]
@@ -1043,6 +1185,7 @@ class GeneExpressionPairDataset(Dataset):
             self.right_expression_data = np.array(
                 adata.X[self.right_indices, :].todense()
             )
+            # import pdb; pdb.set_trace()
         except AttributeError:
             # Dense matrix case
             self.left_expression_data = np.array(adata.X[self.left_indices, :])
@@ -1076,19 +1219,32 @@ class GeneExpressionPairDataset(Dataset):
         right_expression = self.right_expression_data[idx]
         
         self.tokenizer.genes = self.genes
-        
         tokens, prefix, end = self.tokenizer.encode(left_expression, right_expression)
-        
-        return (
-            tokens,                      # (gene_tokens1, gene_tokens2)
-            prefix,                      # [CLS, condition, tissue, ...]
-            end,                         # [SEP]
-            self.left_indices[idx],      # Original data index
-            self.right_indices[idx],     # Original data index
-            self.pair_label[idx],        # 0 or 1
-            self.left_cells[idx],        # Cell ID string
-            self.right_cells[idx]        # Cell ID string
-        )
+        if self.max_len:
+            tokens = (tokens[0][:self.max_len], tokens[1][:self.max_len])
+
+        if self.pair_label is None:
+            return (
+                tokens,                      # (gene_tokens1, gene_tokens2)
+                prefix,                      # [CLS, condition, tissue, ...]
+                end,                         # [SEP]
+                self.left_indices[idx],      # Original data index
+                self.right_indices[idx],     # Original data index
+                None,
+                self.left_cells[idx],        # Cell ID string
+                self.right_cells[idx]        # Cell ID string
+                )
+        else:
+            return (
+                tokens,                      # (gene_tokens1, gene_tokens2)
+                prefix,                      # [CLS, condition, tissue, ...]
+                end,                         # [SEP]
+                self.left_indices[idx],      # Original data index
+                self.right_indices[idx],     # Original data index
+                self.pair_label[idx],        # 0 or 1
+                self.left_cells[idx],        # Cell ID string
+                self.right_cells[idx]        # Cell ID string
+            )
 
 
 # =============================================================================
@@ -1123,10 +1279,7 @@ def collate_fn(batch: List[Tuple[Any, ...]]) -> Dict[str, Union[torch.Tensor, Li
     end_tokens: List[int] = batch[0][2]
     auxiliary_length: int = len(prefix_tokens) + len(end_tokens)
     
-    # Calculate max sequence length
-    max_seq_length: int = max(
-        len(item[0]) + len(item[1]) + len(item[2]) for item in batch
-    )
+    
     
     # Initialize containers
     padded_indices: List[List[int]] = []
@@ -1138,6 +1291,10 @@ def collate_fn(batch: List[Tuple[Any, ...]]) -> Dict[str, Union[torch.Tensor, Li
     is_pair_mode: bool = isinstance(indices[0], (list, tuple)) and len(indices[0]) == 2
     
     if not is_pair_mode:
+        # Calculate max sequence length
+        max_seq_length: int = max(
+            len(item[0]) + len(item[1]) + len(item[2]) for item in batch
+        )
         # ==================== Single Sequence Mode ====================
         for i, tokens in enumerate(indices):
             tokens_len: int = len(tokens)
@@ -1170,68 +1327,67 @@ def collate_fn(batch: List[Tuple[Any, ...]]) -> Dict[str, Union[torch.Tensor, Li
     
     else:
         # ==================== Pair Sequence Mode ====================
+        
         # Extract pair-specific metadata
         left_indices: List[int] = [item[3] for item in batch]
         right_indices: List[int] = [item[4] for item in batch]
         pair_labels: List[int] = [item[5] for item in batch]
         left_cells: List[Any] = [item[6] for item in batch]
         right_cells: List[Any] = [item[7] for item in batch]
-        
-        # Constants for pair mode
-        max_total_length: int = 500
-        max_single_length: int = int((max_total_length / 2) - auxiliary_length)
+
+        max_seq_length: int = max(
+                len(item[0][0]) + len(item[0][1]) + len(item[1])*2 + len(item[2])*2 - 1 for item in batch
+                ) #cls + 4 + token1 + sep + 4 + token2 + sep
+        max_single_length: int = int((max_seq_length / 2) - auxiliary_length)
         exclude_cls: List[int] = prefix_tokens[1:]  # Prefix without CLS token
-        
+
         for i, (token1, token2) in enumerate(indices):
             token1_len: int = len(token1)
             token2_len: int = len(token2)
             
-            if token1_len > max_single_length or token2_len > max_single_length:
-                # Truncate sequences if they exceed max length
-                token1 = token1[:max_single_length + 1]
-                token2 = token2[:max_single_length]
-                
-                # Build first segment: [prefix] + token1 + [end]
-                padded_sequence = prefix_tokens + token1 + end_tokens
-                token_type_id = [1] * len(padded_sequence)
-                
-                # Append second segment: [prefix_no_cls] + token2 + [end]
-                padded_sequence += exclude_cls + token2 + end_tokens
-                token_type_id += [2] * (len(exclude_cls) + len(token2) + len(end_tokens))
-                
-                attention_mask = [1] * len(padded_sequence)
-            else:
-                # Build complete sequence without truncation
-                first_segment = prefix_tokens + token1 + end_tokens
-                second_segment = exclude_cls + token2 + end_tokens
-                padded_sequence = first_segment + second_segment
-                
-                # Calculate padding
-                pad_size = max_total_length - len(padded_sequence)
-                attention_mask = [1] * len(padded_sequence) + [0] * pad_size
-                padded_sequence += [0] * pad_size
-                
-                # Build token type IDs: 1 for first segment, 2 for second, 0 for padding
-                token_type_id = (
-                    [1] * len(first_segment) +
-                    [2] * len(second_segment) +
-                    [0] * pad_size
-                )
-            
+            # Build complete sequence without truncation
+            first_segment = prefix_tokens + token1 + end_tokens
+            second_segment = exclude_cls + token2 + end_tokens
+            padded_sequence = first_segment + second_segment
+            # Calculate padding
+            pad_size = max_seq_length - len(padded_sequence)
+            attention_mask = [1] * len(padded_sequence) + [0] * pad_size
+            padded_sequence += [0] * pad_size
+            # Build token type IDs: 1 for first segment, 2 for second, 0 for padding
+            token_type_id = (
+                [1] * len(first_segment) +
+                [2] * len(second_segment) +
+                [0] * pad_size
+            )
+            sequence_lengths.append([len(first_segment), len(second_segment)])
             padded_indices.append(padded_sequence)
             attention_masks.append(attention_mask)
             token_type_ids.append(token_type_id)
-        
-        return {
-            "indices": torch.tensor(padded_indices),
-            "attention_mask": torch.tensor(attention_masks, dtype=torch.bool),
-            "token_type_ids": torch.tensor(token_type_ids),
-            "left_index": torch.tensor(left_indices),
-            "right_index": torch.tensor(right_indices),
-            "pair_label": torch.tensor(pair_labels),
-            "left_cell_ids": left_cells,
-            "right_cell_ids": right_cells
-        }
+
+        if pair_labels[0] is None:
+            return {
+                "indices": torch.tensor(padded_indices),
+                "attention_mask": torch.tensor(attention_masks, dtype=torch.bool),
+                "token_type_ids": torch.tensor(token_type_ids),
+                "left_index": torch.tensor(left_indices),
+                "right_index": torch.tensor(right_indices),
+                "pair_label": None,
+                "left_cell_ids": left_cells,
+                "right_cell_ids": right_cells,
+                "sequence_length": torch.tensor(sequence_lengths)
+            }
+        else:
+            return {
+                "indices": torch.tensor(padded_indices),
+                "attention_mask": torch.tensor(attention_masks, dtype=torch.bool),
+                "token_type_ids": torch.tensor(token_type_ids),
+                "left_index": torch.tensor(left_indices),
+                "right_index": torch.tensor(right_indices),
+                "pair_label": torch.tensor(pair_labels),
+                "left_cell_ids": left_cells,
+                "right_cell_ids": right_cells,
+                "sequence_length": torch.tensor(sequence_lengths)
+            }
 
 
 if __name__ == "__main__":
@@ -1247,18 +1403,23 @@ if __name__ == "__main__":
     tissue = "Lung"
     condition = "Disease"
     method = "cls" #getting the cls token embeddings
+    # import pdb; pdb.set_trace()
     ct_train_embed_adata = embed_data(adata = ct_train_adata, 
                                 tissue = tissue,
                                 condition = condition,
                                 method = method,
                                 model_ckp_path = model_ckp_path, 
                                 batch_size = batch_size,
-                                mode = "single",
+                                mode = "pair",
                                 threshold = 0.7,
-                                num_workers = 0,
-                                gene_median_path = "/scratch/project_465001820/Spatialformer/data/gene_median.pkl"
+                                num_workers = 8,
+                                gene_median_path = "/scratch/project_465001820/Spatialformer/data/gene_median.pkl",
+                                left_cell = ct_train_adata.obs.index[:1000],
+                                right_cell = ct_train_adata.obs.index[1000:2000],
+                                reverse_check=False,
+                                max_len=500
                                 )
         
     #save the 
-    np.save("/scratch/project_465001820/Spatialformer/downstream/cell_types_nich_annotation/data/CRC_VisiumHD_adata_train_spatialformer.npy",embed_adata_train.obsm["X_SpaF"])
+    # np.save("/scratch/project_465001820/Spatialformer/downstream/cell_types_nich_annotation/data/CRC_VisiumHD_adata_train_spatialformer.npy",embed_adata_train.obsm["X_SpaF"])
     

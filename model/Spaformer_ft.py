@@ -6,8 +6,8 @@ import torch.nn as nn
 
 
 import sys
-sys.path.append("/scratch/project_465001027/Spatialformer/scripts")
-sys.path.append("/scratch/project_465001027/Spatialformer/model")
+sys.path.append("/scratch/project_465001820/Spatialformer/train")
+sys.path.append("/scratch/project_465001820/Spatialformer/model")
 from data_loader import *
 from utils import complete_masking
 from Spaformer_pair import *

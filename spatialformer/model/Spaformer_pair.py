@@ -11,6 +11,7 @@ import torch.distributed as dist
 from spatialformer.utils import complete_masking, categorical_2d_masking
 from .model import SpaEncoder
 import pickle
+import wandb
 import os
 MASK_TOKEN = 2
 CLS_TOKEN = 1
@@ -191,6 +192,7 @@ class AdjacencyProjector(nn.Module):
         block2_list = []
 
         for b in range(B):
+            # import pdb; pdb.set_trace()
             L1 = seq_lengths[b, 0].item()
             L2 = seq_lengths[b, 1].item()
 
@@ -394,34 +396,70 @@ class PairLoss(nn.Module):
 
 
 class MaskedMSELoss(nn.Module):
-    def __init__(self, mask_way = "MT", n_token = None, cls_token = None, sep_token = None):
+    def __init__(self, mask_way="MT", n_token=None, cls_token=None, sep_token=None):
         '''
         mask_way: MT means mask the token. ME means mask the expression level
-        
         '''
         super(MaskedMSELoss, self).__init__()
         self.mask_way = mask_way
         self.n_token = n_token
         self.cls_token = cls_token
         self.sep_token = sep_token
-        self.loss = nn.CrossEntropyLoss()
+        # Use reduction='none' to get per-token loss
+        self.loss_unreduced = nn.CrossEntropyLoss(reduction='none', ignore_index=-100)
+        self.loss_reduced = nn.CrossEntropyLoss(ignore_index=-100)
 
-    def forward(self, input: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
-        # import pdb; pdb.set_trace()
-        #get rid of the special token with <SEP> and <CLS>
-        target[(target == self.cls_token) | (target == self.sep_token)] = -100
-        try:
-            # import pdb; pdb.set_trace()
-            loss = self.loss(input, target)
-            if torch.isnan(loss) or torch.isinf(loss):
-                print("input:", input)
-                print("target:", target)
-                raise ValueError("Loss is NaN or Inf")
-                
-        except:
-            print("Loss computation failed, assigning default loss value.")
-            loss = torch.tensor(5, device=input.device)
-        return loss
+    def forward(self, input: torch.Tensor, target: torch.Tensor, return_position_loss: bool = False, batch_size=None, sequence_length=None) -> torch.Tensor:
+        """
+        Args:
+            input: (batch_size*seq_len, vocab_size) - model predictions
+            target: (batch_size*seq_len) - ground truth token ids
+            return_position_loss: if True, return both reduced and per-position loss
+            
+        Returns:
+            if return_position_loss=False:
+                loss: scalar tensor (reduced loss for backprop)
+            if return_position_loss=True:
+                loss: scalar tensor (reduced loss for backprop)
+                position_loss: (seq_len,) average loss per position across batch (only valid positions)
+        """
+        # Mark special tokens as ignored
+        target = target.clone()  # Avoid modifying original tensor
+        special_token_mask = (target == self.cls_token) | (target == self.sep_token)
+        target[special_token_mask] = -100
+        
+            
+        if return_position_loss:
+            
+            # Get per-token loss: (batch_size, seq_len)
+            per_token_loss = self.loss_unreduced(
+                input, target
+            ).view(batch_size, sequence_length)
+            
+            # Valid mask: (batch_size, seq_len)
+            valid_mask = (target.view(batch_size, sequence_length) != -100).float()
+
+            #get reduced loss
+            loss = (
+                    per_token_loss * valid_mask
+                ).sum() / valid_mask.sum().clamp(min=1)
+            # Sum loss per position across batch: (seq_len,)
+            position_loss_sum = (per_token_loss * valid_mask).sum(dim=0)
+            # Count valid samples per position: (seq_len,)
+            valid_count_per_position = valid_mask.sum(dim=0).clamp(min=1)
+            
+            # Average loss per position: (seq_len,)
+            position_loss = position_loss_sum / valid_count_per_position
+            
+            # Set positions with no valid samples to NaN or 0
+            no_valid_samples = (valid_mask.sum(dim=0) == 0)
+            valid_mask = (valid_mask.sum(dim=0) != 0)
+            position_loss[no_valid_samples] = float(0.0)  # or use 0.0
+            return loss, position_loss, valid_mask
+        else:
+            # Compute reduced loss for backpropagation
+            loss = self.loss_reduced(input, target)
+            return loss
     
 # class MaskedMSE2DLoss(nn.Module):
 #     def __init__(self, sample_balance = False):
@@ -630,7 +668,10 @@ class Spaformer(pl.LightningModule):
         self.bpp = bpp
         self.bpp_scale = bpp_scale
         self.running_max_len = 0
-
+        self.return_position_loss = outer_config["return_position_loss"]
+        #accumulated position batch size
+        self.positional_loss_sum = torch.zeros(5000).to(self.device)
+        self.positional_loss_count = torch.zeros(5000).to(self.device)
 
 
 
@@ -648,6 +689,7 @@ class Spaformer(pl.LightningModule):
             token_embedding += self.spatialembeds(x)
 
         transformer_output, attn_scores = self.encoder(token_embedding, False, attention_mask) # batch x (n_tokens) x dim_model
+
         #get the last layer of the model output
         prediction = self.classifier_head(transformer_output[-1])
         #get the pair-wise gene-gene interaction matrix
@@ -740,7 +782,7 @@ class Spaformer(pl.LightningModule):
         batch['attention_mask'] = batch['attention_mask'].to(self.device)
         batch["token_type_ids"] = batch["token_type_ids"].to(self.device)
         batch["sequence_length"] = batch["sequence_length"].to(self.device)
-
+        batch_size, sequence_length = batch['indices'].shape
         
         # Training code
         if batch is not None:
@@ -753,7 +795,25 @@ class Spaformer(pl.LightningModule):
                     #for mlm minibatch
                     exp_batch = mini_batch_list[0]
                     mlm_predictions, real_indices = self.predict_exp(exp_batch, "normalized_exp") #different task means different targets here
-                    MLM_loss = self.MEloss(mlm_predictions, real_indices) # MLM loss
+                    if not self.return_position_loss:
+                        MLM_loss = self.MEloss(mlm_predictions, real_indices) # MLM loss
+                    else:
+                        MLM_loss, avg_position_loss, valid_mask = self.MEloss(mlm_predictions, real_indices, self.return_position_loss, batch_size, sequence_length)
+                        self.positional_loss_sum[:sequence_length][valid_mask] += avg_position_loss[valid_mask]
+                        self.positional_loss_count[:sequence_length][valid_mask] += 1
+                        acc_avg_position_loss = self.positional_loss_sum / self.positional_loss_count.clamp(min=1)
+                        positions = range(len(acc_avg_position_loss))
+                        data = [[pos+1, loss.item()] for pos, loss in zip(positions, acc_avg_position_loss)]
+                        table = wandb.Table(data=data, columns=["position", "loss"])
+                        self.logger.experiment.log({
+                            "train/position_loss_line": wandb.plot.line(
+                                table, 
+                                "position", 
+                                "loss",
+                                title=f"Position-wise Loss (Step {self.global_step})"
+                            )
+                        })
+
                     self.log(f'train_MLM_loss(normalized_exp)', MLM_loss, sync_dist=True, prog_bar=False, reduce_fx='mean')
                     log_sigma_mlm = getattr(self, f'log_sigma_reg1')[0]
                     self.log(f'log_sigma_reg(normalized_exp)', log_sigma_mlm, sync_dist=True, prog_bar=True, reduce_fx='mean')
@@ -782,7 +842,26 @@ class Spaformer(pl.LightningModule):
                     #for mlm minibatch
                     batch = complete_masking(batch, self.hparams.masking_p, self.hparams.n_tokens, self.cls_token, self.mask_token, self.sep_token, self.pad_token) #for mask token prediction
                     mlm_predictions, real_indices, spa_predictions, pair_predictions, pair_label, adjmtx = self.predict_exp(batch, "normalized_exp") #different task means different targets here
-                    MLM_loss = self.MEloss(mlm_predictions, real_indices) # MLM loss
+                    if not self.return_position_loss:
+                        MLM_loss = self.MEloss(mlm_predictions, real_indices) # MLM loss
+                    else:
+                        MLM_loss, avg_position_loss, valid_mask = self.MEloss(mlm_predictions, real_indices, self.return_position_loss, batch_size, sequence_length)
+                        self.positional_loss_sum = self.positional_loss_sum.to(self.device)
+                        self.positional_loss_count = self.positional_loss_count.to(self.device)
+                        self.positional_loss_sum[:sequence_length][valid_mask] += avg_position_loss[valid_mask]
+                        self.positional_loss_count[:sequence_length][valid_mask] += 1
+                        acc_avg_position_loss = self.positional_loss_sum / self.positional_loss_count.clamp(min=1)
+                        positions = range(len(acc_avg_position_loss))
+                        data = [[pos+1, loss.item()] for pos, loss in zip(positions, acc_avg_position_loss) if loss > 0 ]
+                        table = wandb.Table(data=data, columns=["position", "loss"])
+                        self.logger.experiment.log({
+                        "train/position_loss_line": wandb.plot.line(
+                            table, 
+                            "position", 
+                            "loss",
+                            title=f"Position-wise Loss (Step {self.global_step})"
+                        )
+                    })
                     self.log(f'train_MLM_loss(normalized_exp)', MLM_loss, sync_dist=True, prog_bar=False, reduce_fx='mean')
                     log_sigma_mlm = getattr(self, f'log_sigma_reg1')[0]
                     self.log(f'log_sigma_reg(normalized_exp)', log_sigma_mlm, sync_dist=True, prog_bar=True, reduce_fx='mean')
@@ -943,7 +1022,8 @@ class Spaformer(pl.LightningModule):
             batch["pair_label"] = batch["pair_label"].to(self.device)
         batch['attention_mask'] = batch['attention_mask'].to(self.device)
         batch["token_type_ids"] = batch["token_type_ids"].to(self.device)
-        # import pdb; pdb.set_trace()
+        batch_size, sequence_length = batch['indices'].shape
+        import pdb; pdb.set_trace()
         if batch is not None:
             try:
                 if self.outer_config["mini_batch"]:
@@ -954,7 +1034,10 @@ class Spaformer(pl.LightningModule):
                     #for mlm minibatch
                     exp_batch = mini_batch_list[0]
                     mlm_predictions, real_indices = self.predict_exp(exp_batch, "normalized_exp") #different task means different targets here
-                    MLM_loss = self.MEloss(mlm_predictions, real_indices) # MLM loss
+                    if not self.return_position_loss:
+                        MLM_loss = self.MEloss(mlm_predictions, real_indices) # MLM loss
+                    else:
+                        MLM_loss, avg_position_loss = self.MEloss(mlm_predictions, real_indices, self.return_position_loss, batch_size, sequence_length)
                     self.log(f'val_MLM_loss(normalized_exp)', MLM_loss, sync_dist=True, prog_bar=False, reduce_fx='mean')
                     log_sigma_mlm = getattr(self, f'log_sigma_reg1')[0]
                     total_loss += (torch.exp(-log_sigma_mlm) * MLM_loss + log_sigma_mlm)
@@ -977,9 +1060,12 @@ class Spaformer(pl.LightningModule):
                     # import pdb; pdb.set_trace()
                     batch = complete_masking(batch, self.hparams.masking_p, self.hparams.n_tokens, self.cls_token, self.mask_token, self.sep_token, self.pad_token)
                     total_loss = torch.tensor(0, dtype=torch.float, device=self.device)
-
                     mlm_predictions, real_indices, spa_predictions, pair_predictions, pair_label, adjmtx = self.predict_exp(batch, "normalized_exp")#different task means different targets here
-                    MLM_loss = self.MEloss(mlm_predictions, real_indices) # MLM loss
+                    if not self.return_position_loss:
+                        MLM_loss = self.MEloss(mlm_predictions, real_indices) # MLM loss
+                    else:
+                        MLM_loss, avg_position_loss, valid_mask = self.MEloss(mlm_predictions, real_indices, self.return_position_loss, batch_size, sequence_length)
+
                     self.log(f'val_MLM_loss(normalized_exp)', MLM_loss, sync_dist=True, prog_bar=False, reduce_fx='mean')
                     log_sigma_mlm = getattr(self, f'log_sigma_reg1')[0]
                     total_loss += (torch.exp(-log_sigma_mlm) * MLM_loss + log_sigma_mlm)
@@ -1038,6 +1124,7 @@ class Spaformer(pl.LightningModule):
         token_type_ids = batch["token_type_ids"].to(self.device)
         sequence_length = batch["sequence_length"].to(self.device)
         predictions = self.forward(indices, False, attention_mask, token_type_ids, sequence_length)
+
         if not pair_prediction:
             if not co_prediction:
                 hidden_repr = [predictions["transformer_output"][i] for i in layers]
@@ -1076,6 +1163,7 @@ class Spaformer(pl.LightningModule):
             pair_result_logit = predictions["pair_prediction"]
             #to probabilities
             probabilities = torch.nn.functional.softmax(pair_result_logit, dim=1)
+
             return hidden_repr, probabilities
     def get_pair(self, batch):
         indices = batch["indices"].to(self.device)
@@ -1161,4 +1249,32 @@ class CosineWarmupScheduler(optim.lr_scheduler._LRScheduler):
             lr_factor *= epoch * 1.0 / self.warmup
             
         return lr_factor
+
+
+def log_position_loss_to_wandb(
+    position_loss: torch.Tensor, 
+    step: int, 
+    prefix: str = "train",
+):
+    """
+    Log position-wise loss to wandb with a line plot.
+    
+    Args:
+        position_loss: (seq_len,) tensor of loss values per position
+        step: current training step
+        prefix: prefix for wandb log keys (e.g., 'train', 'val')
+    """
+
+    positions = range(len(position_loss))
+    data = [[pos+1, loss.item()] for pos, loss in zip(positions, position_loss)]
+    table = wandb.Table(data=data, columns=["position", "loss"])
+    wandb.log({
+        f"{prefix}/position_loss_line": wandb.plot.line(
+            table, 
+            "position", 
+            "loss",
+            title=f"Position-wise Loss (Step {step})"
+        )
+    })
+
 

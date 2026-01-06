@@ -1158,7 +1158,7 @@ class Spaformer(pl.LightningModule):
                 return hidden_repr, pred_blocks
 
         else:
-            
+
             hidden_repr = [predictions["transformer_output"][i] for i in layers]
             pair_result_logit = predictions["pair_prediction"]
             #to probabilities

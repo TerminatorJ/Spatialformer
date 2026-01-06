@@ -155,7 +155,7 @@ def data_prepare(sample_name, kfold, num_workers, batch_size, radius=30, test_si
         return test_dataloader
 
 class FineTune:
-    def __init__(self, config, ckp_path, sample_name, radius, fine_tune_mode, wandb, strategy):
+    def __init__(self, config, ckp_path, sample_name, radius, fine_tune_mode, wandb, strategy, lora_ckp_path=None):
         self.config = config
         self.sample_name = sample_name
         self.fold = None
@@ -166,9 +166,15 @@ class FineTune:
         self.fine_tune_mode = fine_tune_mode
         # import pdb; pdb.set_trace()
         self.base_model = self.load_pretrained_lm_weights(config, ckp_path) #loading the parameters of the model
-        self.output_dir = "/scratch/project_465001027/Spatialformer/output/fine_tune"
-        self.probe_model = FTNetwork(self.base_model, fine_tune_mode = fine_tune_mode, outer_config = config) #here is the proximity or not
-        
+        self.output_dir = "/scratch/project_465001820/Spatialformer/output/fine_tune"
+        os.makedirs(self.output_dir, exist_ok=True)
+        if "lora" not in config["resume_from_local_checkpoint"]:
+            print("load the ckp from arguments")
+            self.probe_model = FTNetwork(self.base_model, fine_tune_mode = fine_tune_mode, outer_config = config) #here is the proximity or not
+        else:
+            print("load the ckp from the config file with key: resume_from_local_checkpoint")
+            self.lora_ckp_path = config["resume_from_local_checkpoint"]
+            self.probe_model = self.load_finetuned_model_from_lightning(config)
         self.gpus = torch.cuda.device_count()
         # self.gpus = 1
         # import pdb; pdb.set_trace()
@@ -181,11 +187,11 @@ class FineTune:
         callbacks = [
         ModelCheckpoint(
             dirpath=os.path.join(self.output_dir, "checkpoints"),
-            filename=f"{{step:07d}}-{{train_loss:.4f}}_{self.sample_name}_{self.fold}_{self.radius}_{self.fine_tune_mode}_{self.total_steps}",
-            every_n_train_steps=2000,
+            filename=f"{{step:07d}}-{{train_total_loss:.4f}}_{self.sample_name}_{self.fold}_{self.radius}_{self.fine_tune_mode}_{self.total_steps}",
+            every_n_train_steps=100,
             save_top_k=-1,
             # every_n_epochs=1,
-            monitor='val_loss',
+            monitor='train_total_loss',
             save_on_train_epoch_end=False
         ), LearningRateMonitor(logging_interval="step")]
         # EarlyStopping(monitor = "val_loss", min_delta = 0.00, verbose = True, mode = "min", patience=5)]
@@ -210,7 +216,7 @@ class FineTune:
             default_root_dir=self.output_dir,
             num_sanity_val_steps=0,
             callbacks=self.make_callback(),
-            log_every_n_steps=10,
+            log_every_n_steps=50,
             logger=self.logger,
             precision='bf16',
             # precision=16,
@@ -246,6 +252,34 @@ class FineTune:
         # base_model.eval()
         base_model.to(device)
         return base_model
+    def load_finetuned_model_from_lightning(self, config):
+        """Load fine-tuned model from Lightning checkpoint"""
+        # Create fresh model structure
+        base_model = manual_train_fm(config=config)
+        probe_model = FTNetwork(base_model, fine_tune_mode=self.fine_tune_mode, outer_config=config)
+        
+        # Load checkpoint
+        ckp = torch.load(self.lora_ckp_path, map_location=device)
+        
+        # Handle potential prefix issues
+        state_dict = ckp["state_dict"]
+        
+        # Remove common prefixes added by Lightning
+        new_state_dict = {}
+        for k, v in state_dict.items():
+            # Remove 'model.' prefix if exists (Lightning sometimes adds this)
+            new_key = k.replace("model.", "") if k.startswith("model.") else k
+            new_state_dict[new_key] = v
+        
+        missing, unexpected = probe_model.load_state_dict(new_state_dict, strict=False)
+        
+        if missing:
+            print(f"Missing keys: {missing}")
+        if unexpected:
+            print(f"Unexpected keys: {unexpected}")
+        
+        probe_model.to(device)
+        return probe_model
 
 
 if __name__ == "__main__":

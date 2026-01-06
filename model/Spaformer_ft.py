@@ -3,13 +3,12 @@ import torch
 import torch.nn.functional as F
 from torchmetrics import Accuracy, Recall, Specificity, AUROC, F1Score, Precision
 import torch.nn as nn
-
-
 import sys
 sys.path.append("/scratch/project_465001820/Spatialformer/train")
-sys.path.append("/scratch/project_465001820/Spatialformer/model")
+sys.path.append("/scratch/project_465001820/Spatialformer/utils")
+sys.path.append("/scratch/project_465001820/Spatialformer/spatialformer/model")
 from data_loader import *
-from utils import complete_masking
+from utils import complete_masking, Lora
 from Spaformer_pair import *
 import torch.distributed as dist
 
@@ -36,7 +35,7 @@ class FTNetwork(pl.LightningModule):
             self.base_model.token_type_embeddings.weight.requires_grad = False
             self.base_model.print_trainable_parameters()
             
-            # import pdb; pdb.set_trace()
+            
         elif fine_tune_mode == "probe":
             #the probe network only release the pair layer
             for param in self.base_model.parameters():
@@ -53,8 +52,8 @@ class FTNetwork(pl.LightningModule):
             self.base_model.token_type_embeddings.weight.requires_grad = False
             # import pdb; pdb.set_trace()
         # self.loss = nn.CrossEntropyLoss()
-        self.MEloss = MaskedMSELoss(mask_way = outer_config["mask_way"], n_token = outer_config["n_tokens"]+outer_config["n_atokens"], cls_token = outer_config["cls_token"], sep_token = outer_config["sep_token"])#masked token loss
-        self.MDloss = MaskedMSE2DLoss(sample_balance = True)
+        self.MEloss = MaskedMSELoss(n_token = outer_config["n_tokens"]+outer_config["n_atokens"], cls_token = outer_config["cls_token"], sep_token = outer_config["sep_token"])#masked token loss
+
         self.Pairloss = PairLoss()
         self.lr = outer_config["lr"]
         
@@ -72,10 +71,11 @@ class FTNetwork(pl.LightningModule):
         self.log_sigma_mlm = nn.Parameter(torch.zeros(1))    # Log variance for regression
         self.log_sigma_spa = nn.Parameter(torch.zeros(1)) 
         self.outer_config = outer_config
-    def forward(self, masked_indices, attention_mask, token_type_ids):   
+    def forward(self, masked_indices, attention_mask, token_type_ids, sequence_length):   
         # import pdb; pdb.set_trace()
         # pair_result_logit = self.base_model.get_pair(batch)
-        predictions = self.base_model(masked_indices, False, attention_mask, token_type_ids)
+        #mute adjmtx
+        predictions = self.base_model(masked_indices, False, attention_mask, token_type_ids, sequence_length)
         # probe_output = self.probe_layer(cls_embeddings)  # Pass it through the probe layer
         return predictions
     
@@ -103,9 +103,9 @@ class FTNetwork(pl.LightningModule):
         token_type_ids = batch["token_type_ids"]  
         pair_label = batch["pair_label"] 
         mask = batch['mask']   
-        adjmtx = batch['adjmtx']
+        sequence_length = batch["sequence_length"]
 
-        predictions = self(masked_indices, attention_mask, token_type_ids)
+        predictions = self(masked_indices, attention_mask, token_type_ids, sequence_length)
         mlm_predictions = predictions['mlm_prediction']
         real_indices = torch.where(mask==self.outer_config["mask_token"], real_indices, torch.tensor(-100, dtype=torch.long)).type(torch.int64)
         mlm_predictions = mlm_predictions.view(-1, self.outer_config["n_tokens"]+self.outer_config["n_atokens"])
@@ -121,15 +121,13 @@ class FTNetwork(pl.LightningModule):
         Pair_loss = self.Pairloss(pair_predictions, pair_label) #Paired loss
 
 
-        spa_predictions = predictions['spa_prediction']
-        Spa_loss = self.MDloss(spa_predictions, adjmtx)
+
 
         total_loss = torch.tensor(0, dtype=torch.float, device=self.device)
         total_loss += (torch.exp(-self.log_sigma_mlm[0]) * MLM_loss + self.log_sigma_mlm[0])
         total_loss += (torch.exp(-self.log_sigma_pair[0]) * Pair_loss + self.log_sigma_pair[0])
-        total_loss += (torch.exp(-self.log_sigma_spa[0]) * Spa_loss * self.linear_schedule_for_scale() + self.log_sigma_spa[0])
 
-        output = {"mlm_loss": MLM_loss, "pair_loss": Pair_loss, "spa_loss": Spa_loss, "total_loss": total_loss, "pair_logit":pair_logit, "pair_positive_probs":pair_positive_probs}
+        output = {"mlm_loss": MLM_loss, "pair_loss": Pair_loss, "spa_loss": 0, "total_loss": total_loss, "pair_logit":pair_logit, "pair_positive_probs":pair_positive_probs}
         return output
     
     def linear_schedule_for_scale(self, num_stagnant_steps=100):
@@ -192,11 +190,13 @@ class FTNetwork(pl.LightningModule):
         batch["token_type_ids"] = batch["token_type_ids"].to(self.device)
         batch["left_index"] = batch["left_index"].to(self.device)
         batch["right_index"] = batch["right_index"].to(self.device)
+        batch["sequence_length"] = batch["sequence_length"].to(self.device)
         labels = batch["pair_label"]
         left_indexs = batch["left_index"]
         right_indexs = batch["right_index"]
         # print("left_indexs:", left_indexs)
         # print("right_indexs:", right_indexs)
+
         last_hidden_repr, pair_prob = self.base_model.get_embeddings(batch, [-1], True, False) #
         if self.fine_tune_mode == "zero_shot":
             # import pdb; pdb.set_trace()

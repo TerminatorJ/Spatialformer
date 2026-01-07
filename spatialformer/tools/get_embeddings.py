@@ -76,6 +76,7 @@ def get_file_path(path: str, filename: str) -> str:
         '/path/to/project/config/config.json'
     """
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
     return os.path.join(project_root, path, filename)
 
 
@@ -277,12 +278,13 @@ def prepare_extended_checkpoint(model, ckpt_path, old_size=1950, new_size=6065):
 # =============================================================================
 
 def embed_data(
-    adata,
-    tissue: str, 
-    condition: str,
-    method: str,
-    model_ckp_path: str, 
-    batch_size: int,
+    adata = None,
+    tissue: str = "Lung", 
+    condition: str = "Disease",
+    assay: str = "Xenium",
+    method: str = "CLS",
+    model_ckp_path: str = None, 
+    batch_size: int = 4,
     config_path: str = get_file_path("config", "_config_train_large_pair.json"),
     token_path: str = get_file_path("tokenizer", "tokenv5.json"),
     mode: str = "single",
@@ -389,8 +391,9 @@ def embed_data(
     # Step 2: Initialize and Load Model
     # -------------------------------------------------------------------------
     logger.info("Loading the SpatialFormer model...")
-    
+
     # Create model architecture
+
     model = manual_train_fm(config=config)
     
     # Load pretrained weights
@@ -468,7 +471,8 @@ def _process_single_mode(
     threshold: float,
     reveal_name_flag: bool,
     gene_median_path: str,
-    max_len: int
+    max_len: int,
+    assay: str = "Xenium"
 ):
     """
     Process single cells to generate embeddings.
@@ -481,6 +485,7 @@ def _process_single_mode(
         mode="single", 
         tissue=tissue, 
         condition=condition, 
+        assay=assay,
         gene_median_path=gene_median_path
     )
     dataset = GeneExpressionDataset(adata, tokenizer, max_len)
@@ -581,7 +586,8 @@ def _process_pair_mode(
     only_loader: bool,
     gene_median_path: str,
     reverse_check: bool,
-    max_len: int
+    max_len: int,
+    assay: str = "Xenium"
 ):
     """
     Process cell pairs to predict relationships.
@@ -600,6 +606,7 @@ def _process_pair_mode(
         mode="pair", 
         tissue=tissue, 
         condition=condition, 
+        assay=assay,
         gene_median_path=gene_median_path
     )
 
@@ -939,7 +946,8 @@ class GeneTokenizer:
         token_file: str, 
         mode: str = "single", 
         tissue: str = None, 
-        condition: str = None, 
+        condition: str = None,
+        assay: str = None,
         gene_median_path: str = None
     ):
         """
@@ -967,6 +975,7 @@ class GeneTokenizer:
             
         self.tissue_id = self.token_to_id[tissue]
         self.condition_id = self.token_to_id[condition]
+        self.assay_id = self.token_to_id[assay]
         
         # Placeholder for gene names (set per dataset)
         self.genes = None
@@ -1045,7 +1054,7 @@ class GeneTokenizer:
         
         # Prefix: [CLS, condition, tissue, special1, special2]
         # Tokens 3 and 6 appear to be additional special tokens
-        prefix = [cls_token, self.condition_id, self.tissue_id, 3, 6]
+        prefix = [cls_token, self.condition_id, self.tissue_id, 3, self.assay_id]
         end = [sep_token]
         
         if self.mode == "single":

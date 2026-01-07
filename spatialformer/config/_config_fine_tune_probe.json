@@ -1,5 +1,5 @@
 {
-    "resume_from_local_checkpoint": "/scratch/project_465001820/Spatialformer/output/fine_tune/checkpoints/step=0000500-train_total_loss=6.0360_MERFISH_Lung_None_30_lora_400000.ckpt",
+    "resume_from_local_checkpoint": "/home/sxr280/Spatialformer/output/fine_tune/checkpoints/step=0003200-train_total_loss=3.0571_MERFISH_Lung_None_30_lora_400000.ckpt",
     "resume_before_5k": false,
     "return_position_loss": false,
     "suffix": "arrow",
@@ -39,5 +39,5 @@
     "max_epochs": 30661140,
     "spatial_embedding": true,
     "spatial_embedding_freeze": false,
-    "embedding_path": "/scratch/project_465001820/Spatialformer/spatial_embeddings/xenium_5k_pandavid_gene_embeddings.pkl"
+    "embedding_path": "/home/sxr280/Spatialformer/spatial_embeddings/xenium_5k_pandavid_gene_embeddings.pkl"
 }

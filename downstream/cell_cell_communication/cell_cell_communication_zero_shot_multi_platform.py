@@ -13,9 +13,9 @@
 
 
 import sys
-sys.path.append("/scratch/project_465001820/Spatialformer")
-sys.path.append("/scratch/project_465001820/Spatialformer/train")
-sys.path.append("/scratch/project_465001820/Spatialformer/spatialformer/")
+sys.path.append("/home/sxr280/Spatialformer")
+sys.path.append("/home/sxr280/Spatialformer/train")
+sys.path.append("/home/sxr280/Spatialformer/spatialformer/")
 import scanpy as sc
 import numpy as np
 import matplotlib.pyplot as plt
@@ -45,9 +45,11 @@ def main(cell_by_gene_path = "/scratch/project_465001820/Spatialformer/data/Xeni
          sample_name = "breast_cancer",
          fine_tune_mode = "zero_shot",
          model_ckp_path = "/scratch/project_465001820/Spatialformer/output/checkpoints/step=0096000-train_total_loss=-2.9351-val_total_loss=0.0000.ckpt",
+         output_dir = None,
          config_path = "None",
          tissue = "Breast",
          condition = "Disease",
+         assay = "Xenium",
          max_cells = 100000):
     # Define split ratios and random seed
     train_ratio = 0.7
@@ -153,6 +155,7 @@ def main(cell_by_gene_path = "/scratch/project_465001820/Spatialformer/data/Xeni
         test_dataloader = embed_data(adata_test,
                     tissue = tissue, 
                     condition = condition,
+                    assay = assay,
                     method = "gene",
                     model_ckp_path = model_ckp_path, 
                     batch_size = 4,
@@ -184,9 +187,11 @@ def main(cell_by_gene_path = "/scratch/project_465001820/Spatialformer/data/Xeni
         # test_dataloader = data_prepare(sample_name, kfold, num_workers, batch_size, radius=r, test_size = None, zero_shot_cell_size = zero_shot_cell_size, split_mode = "random")
         left_cells_train = adata_train.obs.index[all_pairs_train[:,0]]
         right_cells_train = adata_train.obs.index[all_pairs_train[:,1]]
+
         train_dataloader = embed_data(adata_train,
                     tissue = tissue, 
                     condition = condition,
+                    assay = assay,
                     method = "gene",
                     model_ckp_path = model_ckp_path, 
                     batch_size = 128,
@@ -217,6 +222,7 @@ def main(cell_by_gene_path = "/scratch/project_465001820/Spatialformer/data/Xeni
         val_dataloader = embed_data(adata_val,
                     tissue = tissue, 
                     condition = condition,
+                    assay = assay,
                     method = "gene",
                     model_ckp_path = model_ckp_path, 
                     batch_size = 128,
@@ -230,7 +236,7 @@ def main(cell_by_gene_path = "/scratch/project_465001820/Spatialformer/data/Xeni
                     )
         # Run the model to get the predictions
         
-        Finetune = FineTune(config, model_ckp_path, sample_name, radius, fine_tune_mode, wandb = True, strategy = "ddp")
+        Finetune = FineTune(config, model_ckp_path, sample_name, radius, fine_tune_mode, wandb = True, strategy = "ddp", output_dir=output_dir)
         results = Finetune.train(None, train_dataloader, val_dataloader)
     wandb.finish()
     return results
@@ -256,10 +262,14 @@ if __name__ == "__main__":
                         help='The tissue type of the input')
     parser.add_argument('--condition', type=str, default="Disease",
                         help='The condition of the input samples')
+    parser.add_argument('--assay', type=str, default="Xenium",
+                        help='The assay of the input samples')
     parser.add_argument('--max_cells', type=int, default="100000",
                         help='The max number of cells to use. This is different from the zero-shot cell size. It is used to limit the number of cells in the dataset. Default is 100000.')
     parser.add_argument('--config_path', type=str, default=None,
                         help="The configuration path of the model")
+    parser.add_argument('--output_dir', type=str, default=None,
+                        help="The output dir of the model output")
 
     
     
@@ -290,8 +300,10 @@ if __name__ == "__main__":
             fine_tune_mode = fine_tune_mode,
             model_ckp_path = args.checkpoint,
             config_path = args.config_path,
+            output_dir = args.output_dir,
             tissue = args.tissue,
             condition = args.condition,
+            assay = args.assay,
             max_cells = max_cells)
     
         #tesing the model
@@ -324,9 +336,9 @@ if __name__ == "__main__":
 # python cell_cell_communication_zero_shot_multi_platform.py --radius 10 20 30 50 80 100 120 --fine_tune_mode zero_shot --cell_by_gene_path /scratch/project_465001820/Spatialformer/data/Xenium_CRC/cell_feature_matrix.h5 --cell_meta_path /scratch/project_465001820/Spatialformer/data/Xenium_CRC/cells.parquet --sample_name Xenium_CRC --zero_shot_cell_size 500 --tissue Colon --condition Disease
 
 
-#For Xenium, fine-tune by rola is highly recommended
+#For MERFISH, fine-tune by rola is highly recommended
 #Lora fine-tuning
-# python cell_cell_communication_zero_shot_multi_platform.py --radius 30 --fine_tune_mode lora --cell_by_gene_path /scratch/project_465001820/Spatialformer_main_practice/data/MERFISH_Lung/HumanLungCancerPatient1_cell_by_gene.csv --cell_meta_path /scratch/project_465001820/Spatialformer_main_practice/data/MERFISH_Lung/HumanLungCancerPatient1_cell_metadata.csv --sample_name MERFISH_Lung --zero_shot_cell_size 500 --tissue Lung --condition Disease --checkpoint /scratch/project_465001820/Spatialformer/output/checkpoints/stepstep=0176000-traintrain_total_loss=-2.8414-valval_total_loss=0.0000.ckpt --config_path /scratch/project_465001820/Spatialformer/spatialformer/config/_config_fine_tune_probe.json --max_cells 10000
+# python cell_cell_communication_zero_shot_multi_platform.py --radius 30 --fine_tune_mode lora --cell_by_gene_path /scratch/project_465001820/Spatialformer_main_practice/data/MERFISH_Lung/HumanLungCancerPatient1_cell_by_gene.csv --cell_meta_path /scratch/project_465001820/Spatialformer_main_practice/data/MERFISH_Lung/HumanLungCancerPatient1_cell_metadata.csv --sample_name MERFISH_Lung --zero_shot_cell_size 500 --tissue Lung --condition Disease --checkpoint /scratch/project_465001820/Spatialformer/output/checkpoints/stepstep=0176000-traintrain_total_loss=-2.8414-valval_total_loss=0.0000.ckpt --config_path /scratch/project_465001820/Spatialformer/spatialformer/config/_config_fine_tune_probe.json --assay Merfish --max_cells 10000
 
 # python cell_cell_communication_zero_shot_multi_platform.py --radius 30 --fine_tune_mode lora --cell_by_gene_path /scratch/project_465001820/Spatialformer_main_practice/data/MERFISH_Lung/HumanLungCancerPatient1_cell_by_gene.csv --cell_meta_path /scratch/project_465001820/Spatialformer_main_practice/data/MERFISH_Lung/HumanLungCancerPatient1_cell_metadata.csv --sample_name MERFISH_Lung --zero_shot_cell_size 500 --tissue Lung --condition Disease --checkpoint /scratch/project_465001820/Spatialformer/output/checkpoints/stepstep=0176000-traintrain_total_loss=-2.8414-valval_total_loss=0.0000.ckpt --config_path /scratch/project_465001820/Spatialformer/spatialformer/config/_config_fine_tune_probe.json --max_cells 100 --zero_shot_cell_size 50
 

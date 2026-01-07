@@ -138,8 +138,8 @@ pip install flash-attn --no-build-isolation
 if failed try the pre-built wheel
 
 ```bash
-wget https://github.com/Dao-AILab/flash-attention/releases/download/v2.5.9.post1/flash_attn-2.5.9.post1+cu122torch2.3cxx11abiFALSE-cp39-cp39-linux_x86_64.whl
-pip install ./flash_attn-2.5.9.post1+cu122torch2.3cxx11abiFALSE-cp39-cp39-linux_x86_64.whl
+wget https://github.com/Dao-AILab/flash-attention/releases/download/v2.7.4.post1/flash_attn-2.7.4.post1+cu12torch2.3cxx11abiTRUE-cp310-cp310-linux_x86_64.whl
+pip install ./flash_attn-2.7.4.post1+cu12torch2.3cxx11abiTRUE-cp310-cp310-linux_x86_64.whl
 ```
 
 We implement the FlashAttention(2.x) in our code, which is completely reweited and 2x faster than FlashAttention(1.x).

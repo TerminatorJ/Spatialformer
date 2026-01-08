@@ -42,7 +42,7 @@ Spatial transcriptomics quantifies gene expression within its spatial context, s
 
 
 
-
+s
 ## Tutorials
 
 For the instructions of SpatialFormer, please refer to our jupyter notebook (some in the .py files) [tutorials](downstream/) on:
@@ -60,6 +60,7 @@ The zero-shot tutorials
 
 The fine-tuning tutorials
 - [Cell type/niches annotation](downstream/cell_types_nich_annotation/Tutorial_cell_type_annotation.ipynb)
+- [Cell-cell colocalization prediction fine-tune for other platform](downstream/cell_cell_communication/cell_cell_communication_zero_shot_multi_platform.py)
 
 
 

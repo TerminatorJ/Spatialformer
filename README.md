@@ -175,10 +175,12 @@ The checkpoints can be downloaded according to different use cases as below:
 
 | Input type | Tissue types | Size (number of slides) | Links |
 | :------------------------   | :--------- | :--------- | :--------- | 
-| Paired | 1(lung) | 1 | https://figshare.com/articles/dataset/VUILD102LF_checkpoint/28452137?file=52503359 |
-| Paired | 13 types | 61 | https://figshare.com/articles/dataset/61slides_checkpoints/28452167?file=52503416 |
-| Single | 13 types| 62 | https://figshare.com/articles/dataset/single_input/28452209?file=52503695 |
-| Paired | 1(lung) | 25 | https://figshare.com/articles/dataset/lung_paired_checkpoint/28452233?file=52504040 |
+| Paired | 1(lung) | 1 | [ckp_pair_1_1](https://figshare.com/articles/dataset/VUILD102LF_checkpoint/28452137?file=52503359) |
+| Paired | 13 types | 61 | [ckp_pair_13_61](https://figshare.com/articles/dataset/61slides_checkpoints/28452167?file=52503416) |
+| Paired | 13 types | 71 | [ckp_pair_13_71](https://figshare.com/articles/dataset/pair_input_checkpoint_5k/31146247?file=61331557) |
+| Paired | 1(lung) | 25 | [ckp_pair_1_25](https://figshare.com/articles/dataset/lung_paired_checkpoint/28452233?file=52504040) |
+| Single | 13 types| 62 | [ckp_single_13_62](https://figshare.com/articles/dataset/single_input/28452209?file=52503695) |
+| Single | 13 types| 71 | [ckp_single_13_71](https://figshare.com/articles/dataset/single_input_checkpoint_5k/31146238?file=61331527) |
 
 
 SpatialFormer is mainly focus on the zero-shot learning for the single-cell spatial omics data. Therefore, extracting the embeddings should be the most frequently used in the downstream tasks.

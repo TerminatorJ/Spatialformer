@@ -13,9 +13,9 @@
 
 
 import sys
-sys.path.append("/scratch/project_465001820/Spatialformer")
-sys.path.append("/scratch/project_465001820/Spatialformer/train")
-sys.path.append("/scratch/project_465001820/Spatialformer/spatialformer/")
+sys.path.append("/home/sxr280/Spatialformer")
+sys.path.append("/home/sxr280/Spatialformer/train")
+sys.path.append("/home/sxr280/Spatialformer/spatialformer/")
 import scanpy as sc
 import numpy as np
 import matplotlib.pyplot as plt
@@ -151,6 +151,7 @@ def main(cell_by_gene_path = "/scratch/project_465001820/Spatialformer/data/Xeni
         test_dataloader = embed_data(adata_test,
                     tissue = tissue, 
                     condition = condition,
+                    assay = assay,
                     method = "gene",
                     batch_size = batch_size,
                     mode = "pair",
@@ -191,6 +192,7 @@ def main(cell_by_gene_path = "/scratch/project_465001820/Spatialformer/data/Xeni
         train_dataloader = embed_data(adata_train,
                     tissue = tissue, 
                     condition = condition,
+                    assay = assay,
                     method = "gene",
                     batch_size = batch_size,
                     mode = "pair",
@@ -220,6 +222,7 @@ def main(cell_by_gene_path = "/scratch/project_465001820/Spatialformer/data/Xeni
         val_dataloader = embed_data(adata_val,
                     tissue = tissue, 
                     condition = condition,
+                    assay = assay,
                     method = "gene",
                     batch_size = batch_size,
                     mode = "pair",
@@ -269,6 +272,8 @@ if __name__ == "__main__":
                         help='The tissue type of the input')
     parser.add_argument('--condition', type=str, default="Disease",
                         help='The condition of the input samples')
+    parser.add_argument('--assay', type=str, default="Xenium",
+                        help='The assay of the input samples')
     parser.add_argument('--max_cells', type=int, default="100000",
                         help='The max number of cells to use. This is different from the zero-shot cell size. It is used to limit the number of cells in the dataset. Default is 100000.')
     parser.add_argument('--config_path', type=str, default=None,
@@ -307,6 +312,7 @@ if __name__ == "__main__":
             sample_name = sample_name,
             fine_tune_mode = fine_tune_mode,
             config_path = args.config_path,
+            output_dir = args.output_dir,
             tissue = args.tissue,
             condition = args.condition,
             max_cells = max_cells,

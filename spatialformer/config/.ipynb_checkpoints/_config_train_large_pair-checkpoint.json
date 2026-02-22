@@ -39,5 +39,5 @@
     "max_epochs": 30661140,
     "spatial_embedding": true,
     "spatial_embedding_freeze": false,
-    "embedding_path": "/home/sxr280/Spatialformer/spatial_embeddings/xenium_5k_pandavid_gene_embeddings.pkl"
+    "embedding_path": "/scratch/project_465001820/Spatialformer/spatial_embeddings/xenium_5k_pandavid_gene_embeddings.pkl"
 }

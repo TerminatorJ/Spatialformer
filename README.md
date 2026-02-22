@@ -42,7 +42,7 @@ Spatial transcriptomics quantifies gene expression within its spatial context, s
 
 
 
-
+s
 ## Tutorials
 
 For the instructions of SpatialFormer, please refer to our jupyter notebook (some in the .py files) [tutorials](downstream/) on:
@@ -60,6 +60,7 @@ The zero-shot tutorials
 
 The fine-tuning tutorials
 - [Cell type/niches annotation](downstream/cell_types_nich_annotation/Tutorial_cell_type_annotation.ipynb)
+- [Cell-cell colocalization prediction fine-tune for other platform](downstream/cell_cell_communication/cell_cell_communication_zero_shot_multi_platform.py)
 
 
 
@@ -105,6 +106,46 @@ pip install -e --extra-index-url https://download.pytorch.org/whl/cu121
 ```
 
 
+**FlashAttention** is required to accelerate training and inference while maintaining accuracy.  
+Before that, nvcc(CUDA compiler) should be detected in your device by installing the nvcc via
+```bash
+conda install -c "nvidia/label/cuda-12.4.0" cuda-toolkit
+#check the installation of nvcc
+nvcc --version
+```
+When compilation is ready, let's install the flash-attention  
+
+To get started with the triton backend for **AMD**, follow the steps below.
+```bash
+pip install triton
+```
+Then install the FlashAttention(2.X) from the github
+```bash
+git clone https://github.com/Dao-AILab/flash-attention.git
+export FLASH_ATTENTION_TRITON_AMD_ENABLE="TRUE"
+cd flash-attention
+python setup.py install
+```
+Finally, test whether it works normally.
+```bash
+pytest tests/test_flash_attn.py
+```
+
+Alternatively, if you are using **A100**, please easily run the following code to install FlashAttention(2.X)
+```bash
+pip install flash-attn --no-build-isolation
+```
+
+if failed try the pre-built wheel
+
+```bash
+wget https://github.com/Dao-AILab/flash-attention/releases/download/v2.5.8/flash_attn-2.5.8+cu122torch2.3cxx11abiFALSE-cp310-cp310-linux_x86_64.whl
+pip install ./flash_attn-2.5.8+cu122torch2.3cxx11abiFALSE-cp310-cp310-linux_x86_64.whl
+```
+
+We implement the FlashAttention(2.x) in our code, which is completely reweited and 2x faster than FlashAttention(1.x).
+
+
 
 
 ## Pretraining data
@@ -134,10 +175,26 @@ The checkpoints can be downloaded according to different use cases as below:
 
 | Input type | Tissue types | Size (number of slides) | Links |
 | :------------------------   | :--------- | :--------- | :--------- | 
-| Paired | 1(lung) | 1 | https://figshare.com/articles/dataset/VUILD102LF_checkpoint/28452137?file=52503359 |
-| Paired | 13 types | 61 | https://figshare.com/articles/dataset/61slides_checkpoints/28452167?file=52503416 |
-| Single | 13 types| 62 | https://figshare.com/articles/dataset/single_input/28452209?file=52503695 |
-| Paired | 1(lung) | 25 | https://figshare.com/articles/dataset/lung_paired_checkpoint/28452233?file=52504040 |
+| Paired | lung | 1 | [ckp_pair_lung_1](https://figshare.com/articles/dataset/VUILD102LF_checkpoint/28452137?file=52503359) |
+| Paired | 13 types | 61 | [ckp_pair_13tissues_61](https://figshare.com/articles/dataset/61slides_checkpoints/28452167?file=52503416) |
+| Paired | 13 types | 71 | [ckp_pair_13tissues_71](https://figshare.com/articles/dataset/pair_input_checkpoint_5k/31146247?file=61331557) |
+| Paired | lung | 25 | [ckp_pair_lung_25](https://figshare.com/articles/dataset/lung_paired_checkpoint/28452233?file=52504040) |
+| Single | 13 types| 62 | [ckp_single_13tissues_62](https://figshare.com/articles/dataset/single_input/28452209?file=52503695) |
+| Single | 13 types| 71 | [ckp_single_13tissues_71](https://figshare.com/articles/dataset/single_input_checkpoint_5k/31146238?file=61331527) |
+
+The LoRA fine-tuned checkpoints can be downloaded as below:
+| Input type | Tissue types | Size (number of slides) | Cell Number | Links |
+| :------------------------   | :--------- | :--------- | :--------- | :--------- | 
+| Paired | lung | 1 | 10k | [ckp_pair_lung_LoRA_10K](https://figshare.com/account/projects/238169/articles/31189936?file=61470880) |
+| Paired | breast | 1 | 10k | [ckp_pair_breast_LoRA_10K](https://figshare.com/account/projects/238169/articles/31198297?file=61486936) |
+| Paired | colon | 1 | 10k | [ckp_pair_colon_LoRA_10K](https://figshare.com/account/projects/238169/articles/31198303?file=61486942) |
+| Paired | lung | 1 | 100k | [ckp_pair_lung_LoRA_100K](https://figshare.com/account/projects/238169/articles/31198306?file=61486945) |
+| Paired | breast | 1 | 100k | [ckp_pair_breast_LoRA_100K](https://figshare.com/account/projects/238169/articles/31198330?file=61486969) |
+| Paired | colon | 1 | 100k | [ckp_pair_colon_LoRA_100K](https://figshare.com/account/projects/238169/articles/31198336?file=61486975) |
+
+
+
+
 
 
 SpatialFormer is mainly focus on the zero-shot learning for the single-cell spatial omics data. Therefore, extracting the embeddings should be the most frequently used in the downstream tasks.
@@ -279,6 +336,15 @@ python ./script/train.py --config /scratch/project_465001820/Spatialformer/confi
 Pretrain the doublet input model
 ```python
 python ./script/train.py --config /scratch/project_465001820/Spatialformer/config/_config_train_large_pair.json
+```
+
+### Fine-tune the model
+
+For each slide, the accurate prediction of the molecular features largely rely on the cell-cell colocalization. 
+We use LoRA to fine-tune the SpatialFormer model with one slide.
+
+```python
+python cell_cell_communication_zero_shot_multi_platform.py --radius 30 --fine_tune_mode lora --rank 64 --lora_alpha 128 --cell_by_gene_path /scratch/project_465001820/Spatialformer_main_practice/data/MERFISH_Lung/HumanLungCancerPatient1_cell_by_gene.csv --cell_meta_path /scratch/project_465001820/Spatialformer_main_practice/data/MERFISH_Lung/HumanLungCancerPatient1_cell_metadata.csv --sample_name MERFISH_Lung --zero_shot_cell_size 500 --tissue Lung --condition Disease --config_path /scratch/project_465001820/Spatialformer/spatialformer/config/_config_fine_tune_probe.json --batch_size 32 --max_cells 10000
 ```
 
 ### Reproducibility of the work

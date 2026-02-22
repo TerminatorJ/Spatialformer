@@ -338,6 +338,15 @@ Pretrain the doublet input model
 python ./script/train.py --config /scratch/project_465001820/Spatialformer/config/_config_train_large_pair.json
 ```
 
+### Fine-tune the model
+
+For each slide, the accurate prediction of the molecular features largely rely on the cell-cell colocalization. 
+We use LoRA to fine-tune the SpatialFormer model with one slide.
+
+```python
+python cell_cell_communication_zero_shot_multi_platform.py --radius 30 --fine_tune_mode lora --rank 64 --lora_alpha 128 --cell_by_gene_path /scratch/project_465001820/Spatialformer_main_practice/data/MERFISH_Lung/HumanLungCancerPatient1_cell_by_gene.csv --cell_meta_path /scratch/project_465001820/Spatialformer_main_practice/data/MERFISH_Lung/HumanLungCancerPatient1_cell_metadata.csv --sample_name MERFISH_Lung --zero_shot_cell_size 500 --tissue Lung --condition Disease --config_path /scratch/project_465001820/Spatialformer/spatialformer/config/_config_fine_tune_probe.json --batch_size 32 --max_cells 10000
+```
+
 ### Reproducibility of the work
 
 All the codes for reproducing the results of the manuscript were presented in the ./downstream directory.

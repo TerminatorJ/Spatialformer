@@ -1,4 +1,6 @@
+#cache files
 /cache/*
+
 
 /data/*
 
@@ -6,14 +8,16 @@
 
 
 /downstream/cell_cell_communication/data/*
+/downstream/cell_cell_communication/*.err
+/downstream/cell_cell_communication/*.out
 /downstream/cell_types_nich_annotation/cell_type_rawdata/*
 /downstream/cell_types_nich_annotation/data/*
 /downstream/cell_types_nich_annotation/figures
-/downstream/cell_types_nich_annotation/subcellular_localization_prediction/data/*
-/downstream/cell_types_nich_annotation/subcellular_localization_prediction/templates/*
-/downstream/cell_types_nich_annotation/subcellular_localization_prediction/*.csv
-/downstream/cell_types_nich_annotation/subcellular_localization_prediction/transcripts_genesamepatterns.csv
-/downstream/cell_types_nich_annotation/subcellular_localization_prediction/data/graph_list.pkl
+/downstream/subcellular_localization_prediction/data/*
+/downstream/subcellular_localization_prediction/templates/*
+/downstream/subcellular_localization_prediction/*.csv
+/downstream/subcellular_localization_prediction/transcripts_genesamepatterns.csv
+/downstream/subcellular_localization_prediction/data/graph_list.pkl
 /downstream/subcellular_localization_prediction/data/graph_list.pkl
 /downstream/subcellular_localization_prediction/templates/
 /downstream/subcellular_localization_prediction/transcripts_genesamepatterns.csv
@@ -69,6 +73,11 @@ other_data/
 #train file
 /train/*.err
 /train/*.out
+
+#checkpoints
+/data_preprocessing/.ipynb_checkpoints/
+/train/.ipynb_checkpoints/
+/downstream/Coordinate_perturbation/.ipynb_checkpoints/
 
 
 

@@ -1,5 +1,5 @@
 {
-    "resume_from_local_checkpoint": "/scratch/project_465001820/Spatialformer/output/fine_tune/checkpoints/step=0000500-train_total_loss=6.0360_MERFISH_Lung_None_30_lora_400000.ckpt",
+    "resume_from_local_checkpoint": "/scratch/project_465001820/Spatialformer/output/fine_tune/checkpoints/step=0001000-train_total_loss=4.9022_MERFISH_Colon_None_30_lora_400000.ckpt",
     "resume_before_5k": false,
     "return_position_loss": false,
     "suffix": "arrow",
@@ -32,7 +32,7 @@
     "num_hard_negatives_per_query": 1,
     "num_easy_negatives_per_query": 1,
     "train_frac": 0.99,
-    "lr": 1e-3,
+    "lr": 1e-4,
     "strategy": "ddp",
     "warmup": 1000,
     "total_step": 400000,

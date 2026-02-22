@@ -14,89 +14,183 @@ import torch.distributed as dist
 
 
 
-
-
-
-
-
-
 # The Probe Model that extends the Base Model
 class FTNetwork(pl.LightningModule):
-    def __init__(self, base_model, fine_tune_mode, outer_config: dict = None):
+    def __init__(self, base_model, fine_tune_mode, outer_config: dict = None, rank: int = 8, lora_alpha: int = 16):
         super().__init__()
-        #wrap the lora if neccessary
+        self.save_hyperparameters(ignore=['base_model', 'outer_config'])
+        
+        # --- Model Setup (kept original logic) ---
         self.base_model = base_model
-        self.save_hyperparameters()
         if fine_tune_mode == "lora":
-            # import pdb; pdb.set_trace()
-            self.lora = Lora(lora_config = {"r": 8, "lora_alpha": 16, "target_modules": ["qkv"]})
-            # import pdb; pdb.set_trace()
+            self.lora = Lora(lora_config={"r": rank, "lora_alpha": lora_alpha, 
+                                            "target_modules": ["qkv", "proj", "ffn1", "ffn2", "expand_conv", "conv_proj"],
+                                            "modules_to_save": ["classifier_head", "pair_head", "MEloss", "Pairloss"]})
             self.base_model = self.lora.wrapper(self.base_model)
             self.base_model.token_type_embeddings.weight.requires_grad = False
             self.base_model.print_trainable_parameters()
-            
-            
         elif fine_tune_mode == "probe":
-            #the probe network only release the pair layer
             for param in self.base_model.parameters():
                 param.requires_grad = False
             print("Only pair head trainable!!!")
             for param in self.base_model.pair_head.parameters():
                 param.requires_grad = True
             self.base_model.token_type_embeddings.weight.requires_grad = False
-            # import pdb; pdb.set_trace()
-        
         elif fine_tune_mode == "full_tune":
             for param in self.base_model.parameters():
                 param.requires_grad = True
             self.base_model.token_type_embeddings.weight.requires_grad = False
-            # import pdb; pdb.set_trace()
-        # self.loss = nn.CrossEntropyLoss()
-        self.MEloss = MaskedMSELoss(n_token = outer_config["n_tokens"]+outer_config["n_atokens"], cls_token = outer_config["cls_token"], sep_token = outer_config["sep_token"])#masked token loss
 
+        # --- Loss Setup ---
+        self.MEloss = MaskedMSELoss(n_token=outer_config["n_tokens"]+outer_config["n_atokens"], 
+                                    cls_token=outer_config["cls_token"], sep_token=outer_config["sep_token"])
         self.Pairloss = PairLoss()
         self.lr = outer_config["lr"]
-        
 
-        # Initialize metrics
-        self.accuracy = Accuracy(task='binary')
-        self.recall = Recall(task='binary')
-        self.specificity = Specificity(task='binary')
-        self.auroc = AUROC(num_classes=2, task='binary')
-        self.f1 = F1Score(num_classes=2, task='binary')
-        self.prec = Precision(num_classes=2, task='binary')
-        self.fine_tune_mode = fine_tune_mode
+        # --- Metric Setup ---
+        # Using ModuleDict ensures Lightning manages devices and resets automatically
+        def create_metrics():
+            return nn.ModuleDict({
+                'accuracy': Accuracy(task='binary'),
+                'recall': Recall(task='binary'),
+                'specificity': Specificity(task='binary'),
+                'auroc': AUROC(task='binary'),
+                'f1': F1Score(num_classes=2, task='binary'),
+                'prec': Precision(num_classes=2, task='binary')
+            })
+
+        self.train_metrics = create_metrics()
+        self.val_metrics = create_metrics()
         
-        self.log_sigma_pair = nn.Parameter(torch.zeros(1))  # Log variance for classification
-        self.log_sigma_mlm = nn.Parameter(torch.zeros(1))    # Log variance for regression
+        self.fine_tune_mode = fine_tune_mode
+        self.log_sigma_pair = nn.Parameter(torch.zeros(1))
+        self.log_sigma_mlm = nn.Parameter(torch.zeros(1)) 
         self.log_sigma_spa = nn.Parameter(torch.zeros(1)) 
         self.outer_config = outer_config
+
+    @classmethod
+    def load_from_checkpoint_with_merge(cls, checkpoint_path, base_model, fine_tune_mode, outer_config, 
+                                        rank=8, lora_alpha=16, device='cpu', strict=False):
+        """
+        Load a Lightning checkpoint with LoRA weights and merge them into the base model.
+        """
+        # Load checkpoint
+        ckp = torch.load(checkpoint_path, map_location=device)
+        state_dict = ckp["state_dict"]
+        
+        # Create a temporary LoRA model to load the checkpoint
+        temp_model = cls(base_model, fine_tune_mode="lora", outer_config=outer_config, 
+                        rank=rank, lora_alpha=lora_alpha)
+        
+        # Fix the state dict to match the structure
+        fixed_state_dict = cls._fix_state_dict_for_loading(state_dict, temp_model.state_dict())
+        
+        # Load state dict into temporary LoRA model
+        missing, unexpected = temp_model.load_state_dict(fixed_state_dict, strict=strict)
+        
+        if missing:
+            print(f"Missing keys during load: {missing[:10]}...")  # Show first 10
+        if unexpected:
+            print(f"Unexpected keys during load: {unexpected[:10]}...")
+        
+        # Merge LoRA weights
+        if fine_tune_mode == "lora":
+            print("Merging LoRA weights into base model...")
+            temp_model.base_model = temp_model.base_model.merge_and_unload()
+        
+        # Move to device
+        temp_model.to(device)
+        temp_model.eval()
+        
+        return temp_model
+    @staticmethod
+    def _fix_state_dict_for_loading(loaded_state_dict, model_state_dict):
+        """
+        Fix state dict key mismatches between checkpoint and model.
+        Handles modules_to_save that were saved with .weight/.bias but model expects .original_module/.modules_to_save
+        """
+        fixed_state_dict = {}
+        model_keys = set(model_state_dict.keys())
+        
+        # Define modules that should be in modules_to_save structure
+        modules_to_save_patterns = ["classifier_head", "pair_head", "MEloss", "Pairloss"]
+        
+        for key, value in loaded_state_dict.items():
+            # Check if this key is a simple weight that should be in modules_to_save
+            is_modules_to_save = any(pattern in key for pattern in modules_to_save_patterns)
+            
+            if is_modules_to_save:
+                # Check if the key has the simple structure
+                if ".original_module." not in key and ".modules_to_save." not in key:
+                    # This is a simple key like "base_model.base_model.model.classifier_head.weight"
+                    # We need to map it to both original_module and modules_to_save.default
+                    
+                    # Extract the parts
+                    parts = key.rsplit('.', 1)  # Split on last dot
+                    if len(parts) == 2:
+                        base_key, param_name = parts  # e.g., "base_model...classifier_head", "weight"
+                        
+                        # Create both keys
+                        original_key = f"{base_key}.original_module.{param_name}"
+                        saved_key = f"{base_key}.modules_to_save.default.{param_name}"
+                        
+                        # Add both (modules_to_save.default takes precedence during merge)
+                        if original_key in model_keys:
+                            fixed_state_dict[original_key] = value
+                        if saved_key in model_keys:
+                            fixed_state_dict[saved_key] = value
+                        
+                        continue
+            
+            # For all other keys, keep as is
+            fixed_state_dict[key] = value
+        
+        return fixed_state_dict
+
     def forward(self, masked_indices, attention_mask, token_type_ids, sequence_length):   
-        # import pdb; pdb.set_trace()
-        # pair_result_logit = self.base_model.get_pair(batch)
-        #mute adjmtx
         predictions = self.base_model(masked_indices, False, attention_mask, token_type_ids, sequence_length)
-        # probe_output = self.probe_layer(cls_embeddings)  # Pass it through the probe layer
         return predictions
-    
 
-
+    # --- Training Step ---
     def training_step(self, batch, batch_idx):
-        # import pdb; pdb.set_trace()
-        output, metrics = self._compute_metrics(batch, "train")
-        self.log_dict(metrics, on_epoch=True, on_step=True, prog_bar=True, reduce_fx='mean')
+        # 1. Compute Loss and update metrics
+        output = self._compute_and_update(batch, "train")
+        
+        # 2. Log Losses (Values)
+        self.log("train_total_loss", output["total_loss"], on_step=True, on_epoch=True, prog_bar=True)
+        self.log("train_pair_loss", output["pair_loss"], on_step=True, on_epoch=True)
+        self.log("train_mlm_loss", output["mlm_loss"], on_step=True, on_epoch=True)
+
+        # 3. Log Metrics (Objects)
+        # We iterate over the metrics and log the OBJECT, not the value.
+        for name, metric in self.train_metrics.items():
+            self.log(f"train_{name}", metric, on_step=False, on_epoch=True, prog_bar=True)
+            
         return output["total_loss"]
+
+    # --- Validation Step ---
     def validation_step(self, batch, batch_idx):
-        output, metrics = self._compute_metrics(batch, "val")
-        # Log metrics
-        self.log_dict(metrics, on_epoch=True, on_step=True, prog_bar=True, reduce_fx='mean')
-       
+        # 1. Compute Loss and update metrics
+        output = self._compute_and_update(batch, "val")
+
+        # 2. Log Losses (Values)
+        self.log("val_total_loss", output["total_loss"], on_epoch=True, sync_dist=True, prog_bar=True)
+        self.log("val_pair_loss", output["pair_loss"], on_epoch=True, sync_dist=True)
+
+        # 3. Log Metrics (Objects)
+        for name, metric in self.val_metrics.items():
+            self.log(f"val_{name}", metric, on_epoch=True, sync_dist=True, prog_bar=True)
+            
         return output["total_loss"]
+
+
     def _compute_output(self, batch):
-        # import pdb; pdb.set_tsrace()
-        #in case the mask is none
-        batch = complete_masking(batch, self.outer_config["masking_p"], self.outer_config["n_tokens"], self.outer_config["cls_token"], self.outer_config["mask_token"], self.outer_config["sep_token"], self.outer_config["pad_token"])
-        # import pdb; pdb.set_trace()
+        # ... (Keep existing logic exactly as provided in your snippet) ...
+        # Ensure batch items are on device, compute predictions, losses
+        batch = complete_masking(batch, self.outer_config["masking_p"], self.outer_config["n_tokens"], 
+                                 self.outer_config["cls_token"], self.outer_config["mask_token"], 
+                                 self.outer_config["sep_token"], self.outer_config["pad_token"])
+        
         masked_indices = batch['masked_indices']
         real_indices = batch['indices']
         attention_mask = batch['attention_mask']
@@ -107,78 +201,58 @@ class FTNetwork(pl.LightningModule):
 
         predictions = self(masked_indices, attention_mask, token_type_ids, sequence_length)
         mlm_predictions = predictions['mlm_prediction']
-        real_indices = torch.where(mask==self.outer_config["mask_token"], real_indices, torch.tensor(-100, dtype=torch.long)).type(torch.int64)
+        
+        real_indices = torch.where(mask==self.outer_config["mask_token"], real_indices, torch.tensor(-100, dtype=torch.long, device=self.device)).type(torch.int64)
         mlm_predictions = mlm_predictions.view(-1, self.outer_config["n_tokens"]+self.outer_config["n_atokens"])
         real_indices = real_indices.view(-1)
-        # import pdb; pdb.set_trace()
-        MLM_loss = self.MEloss(mlm_predictions, real_indices) # MLM loss
-
+        
+        MLM_loss = self.MEloss(mlm_predictions, real_indices)
         
         pair_predictions = predictions['pair_prediction']
         pair_logit = torch.argmax(pair_predictions, dim=1)
-        # import pdb; pdb.set_trace()
-        pair_positive_probs = torch.sigmoid(pair_predictions[:,1])
-        Pair_loss = self.Pairloss(pair_predictions, pair_label) #Paired loss
+        pair_probs = torch.softmax(pair_predictions, dim=1)
+        pair_positive_probs = pair_probs[:, 1]
+        Pair_loss = self.Pairloss(pair_predictions, pair_label)
 
-
-
-
-        total_loss = torch.tensor(0, dtype=torch.float, device=self.device)
+        total_loss = torch.tensor(0.0, dtype=torch.float, device=self.device)
         total_loss += (torch.exp(-self.log_sigma_mlm[0]) * MLM_loss + self.log_sigma_mlm[0])
         total_loss += (torch.exp(-self.log_sigma_pair[0]) * Pair_loss + self.log_sigma_pair[0])
 
-        output = {"mlm_loss": MLM_loss, "pair_loss": Pair_loss, "spa_loss": 0, "total_loss": total_loss, "pair_logit":pair_logit, "pair_positive_probs":pair_positive_probs}
+        output = {"mlm_loss": MLM_loss, "pair_loss": Pair_loss, "spa_loss": 0, "total_loss": total_loss, 
+                  "pair_logit": pair_logit, "pair_positive_probs": pair_positive_probs}
         return output
-    
-    def linear_schedule_for_scale(self, num_stagnant_steps=100):
-        """
-        Linear schedule for scale, the relative weight assigned
-        to ag_loss
-        """
-        tot = self.outer_config["total_step"]
-        cur = self.global_step
-        if cur < num_stagnant_steps:
-            return 1.0
-        else:
-            return max(0.0, float(tot - cur) / float(max(1, tot - num_stagnant_steps))) 
 
-    def _compute_metrics(self, batch, split) -> tuple:
-        """Helper method hosting the evaluation logic common to the <split>_step methods."""
-
+    def _compute_and_update(self, batch, split) -> dict:
+        """
+        Helper that computes output and updates metric states.
+        Does NOT return computed metric values.
+        """
+        # Move inputs to device
         batch['indices'] = batch['indices'].to(self.device)
         batch["pair_label"] = batch["pair_label"].to(self.device)
         batch['attention_mask'] = batch['attention_mask'].to(self.device)
         batch["token_type_ids"] = batch["token_type_ids"].to(self.device)
         labels = batch["pair_label"]
 
-        # import pdb; pdb.set_trace()
+        # Get model outputs and loss
         output = self._compute_output(batch)
         
         preds = output["pair_logit"]
         pair_positive_probs = output["pair_positive_probs"]
 
-        # Update metrics
-        acc = self.accuracy(preds, labels)
-        rec = self.recall(preds, labels)
-        spec = self.specificity(preds, labels)
-        auc = self.auroc(pair_positive_probs, labels)
-        f1 = self.f1(preds, labels)  # Calculate F1 score
-        prec = self.prec(preds, labels)
+        # UPDATE METRICS INTERNAL STATE
+        # Do not call .compute() here!
+        metric_set = self.train_metrics if split == "train" else self.val_metrics
 
-        metrics = {
-            f"{split}_pair_loss": output["pair_loss"],
-            f"{split}_mlm_loss": output["mlm_loss"],
-            f"{split}_spa_loss": output["spa_loss"],
-            f"{split}_total_loss": output["total_loss"],
-            f"{split}_accuracy": acc,
-            f"{split}_f1": f1,
-            f"{split}_precision": prec,
-            f"{split}_recall": rec,
-            f"{split}_spec": spec,
-            f"{split}_auc":  auc
-        }
+        metric_set['accuracy'].update(preds, labels)
+        metric_set['recall'].update(preds, labels)
+        metric_set['specificity'].update(preds, labels)
+        metric_set['auroc'].update(pair_positive_probs, labels)
+        metric_set['f1'].update(preds, labels)
+        metric_set['prec'].update(preds, labels)
 
-        return output, metrics
+        # Return only the output/loss dict
+        return output
 
     def test_step(self, batch, batch_idx):
         # import pdb; pdb.set_trace()
@@ -198,15 +272,11 @@ class FTNetwork(pl.LightningModule):
         # print("right_indexs:", right_indexs)
 
         last_hidden_repr, pair_prob = self.base_model.get_embeddings(batch, [-1], True, False) #
-        if self.fine_tune_mode == "zero_shot":
-            # import pdb; pdb.set_trace()
-            preds = torch.argmax(pair_prob, dim=1) #get pred from the original model
-            positive_probs = pair_prob #get prob from the original model
-        else:
-            cls_embeddings = last_hidden_repr[0][:,0]
-            outputs = self(cls_embeddings)  # Forward pass through the probe network
-            preds = torch.argmax(outputs, dim=1) #get logits
-            positive_probs = torch.sigmoid(outputs) #get prob
+        # import pdb; pdb.set_trace()
+
+        preds = torch.argmax(pair_prob, dim=1) #get pred from the original model
+        positive_probs = pair_prob #get prob from the original model
+
         # Calculate the loss (assuming it’s a binary classification task)
         # loss = F.cross_entropy(outputs, labels)
         # Update metrics

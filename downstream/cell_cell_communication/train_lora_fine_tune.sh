@@ -4,15 +4,15 @@
 #SBATCH --job-name=fine_tune_pair_model1
 #SBATCH --account=project_465001820
 #number of independent tasks we are going to start in this script
-#SBATCH --ntasks-per-node=4
-#SBATCH --gpus-per-node=4
-#SBATCH --cpus-per-task=4
+#SBATCH --ntasks-per-node=1
+#SBATCH --gpus-per-node=1
+#SBATCH --cpus-per-task=8
 #SBATCH --nodes=1
 #SBATCH --mem=0  # Request all memory on the node
 #number of cpus we want to allocate for each program
 #We expect that our program should not run longer than 2 days
 #Note that a program will be killed once it exceeds this time!
-#SBATCH --time=5:00:00
+#SBATCH --time=2-00:00:00
 #SBATCH --output=fine_tune_pair_model1_%j.out
 #SBATCH --error=fine_tune_pair_model1_%j.err
 
@@ -33,4 +33,36 @@ export WANDB_API_KEY="57f4851d7943ea1dec3b10273876045d051b40f1"  # Get from http
 export MPICH_GPU_SUPPORT_ENABLED=1
 
 cd /scratch/project_465001820/Spatialformer/downstream/cell_cell_communication
-srun /scratch/project_465001820/miniconda3/envs/spatialformer_flash_attn/bin/python cell_cell_communication_zero_shot_multi_platform.py --radius 30 --fine_tune_mode lora --cell_by_gene_path /scratch/project_465001820/Spatialformer_main_practice/data/MERFISH_Lung/HumanLungCancerPatient1_cell_by_gene.csv --cell_meta_path /scratch/project_465001820/Spatialformer_main_practice/data/MERFISH_Lung/HumanLungCancerPatient1_cell_metadata.csv --sample_name MERFISH_Lung --zero_shot_cell_size 500 --tissue Lung --condition Disease --checkpoint /scratch/project_465001820/Spatialformer/output/checkpoints/stepstep=0176000-traintrain_total_loss=-2.8414-valval_total_loss=0.0000.ckpt --config_path /scratch/project_465001820/Spatialformer/spatialformer/config/_config_fine_tune_probe.json --max_cells 10000
+# srun /scratch/project_465001820/miniconda3/envs/spatialformer_flash_attn/bin/python cell_cell_communication_zero_shot_multi_platform.py --radius 30 --fine_tune_mode lora --rank 64 --lora_alpha 128 --cell_by_gene_path /scratch/project_465001820/Spatialformer_main_practice/data/MERFISH_Lung/HumanLungCancerPatient1_cell_by_gene.csv --cell_meta_path /scratch/project_465001820/Spatialformer_main_practice/data/MERFISH_Lung/HumanLungCancerPatient1_cell_metadata.csv --sample_name MERFISH_Lung --zero_shot_cell_size 500 --tissue Lung --condition Disease --config_path /scratch/project_465001820/Spatialformer/spatialformer/config/_config_fine_tune_probe.json --max_cells 1000 --batch_size 32
+# srun /scratch/project_465001820/miniconda3/envs/spatialformer_flash_attn/bin/python cell_cell_communication_zero_shot_multi_platform.py --radius 30 --fine_tune_mode full_tune --cell_by_gene_path /scratch/project_465001820/Spatialformer_main_practice/data/MERFISH_Lung/HumanLungCancerPatient1_cell_by_gene.csv --cell_meta_path /scratch/project_465001820/Spatialformer_main_practice/data/MERFISH_Lung/HumanLungCancerPatient1_cell_metadata.csv --sample_name MERFISH_Lung --zero_shot_cell_size 500 --tissue Lung --condition Disease --config_path /scratch/project_465001820/Spatialformer/spatialformer/config/_config_fine_tune_probe.json --batch_size 32 --max_cells 10000
+
+#For Full fine-tune experiments
+#For Lung
+# srun /scratch/project_465001820/miniconda3/envs/spatialformer_flash_attn/bin/python cell_cell_communication_zero_shot_multi_platform.py --radius 30 --fine_tune_mode full_tune --cell_by_gene_path /scratch/project_465001820/Spatialformer_main_practice/data/MERFISH_Lung/HumanLungCancerPatient1_cell_by_gene.csv --cell_meta_path /scratch/project_465001820/Spatialformer_main_practice/data/MERFISH_Lung/HumanLungCancerPatient1_cell_metadata.csv --sample_name MERFISH_Lung --zero_shot_cell_size 500 --tissue Lung --condition Disease --config_path /scratch/project_465001820/Spatialformer/spatialformer/config/_config_fine_tune_probe.json --batch_size 32
+#For Breast
+# srun /scratch/project_465001820/miniconda3/envs/spatialformer_flash_attn/bin/python cell_cell_communication_zero_shot_multi_platform.py --radius 30 --fine_tune_mode full_tune --cell_by_gene_path /scratch/project_465001820/Spatialformer_main_practice/data/MERFISH_Breast/HumanBreastCancerPatient1_cell_by_gene.csv --cell_meta_path /scratch/project_465001820/Spatialformer_main_practice/data/MERFISH_Breast/HumanBreastCancerPatient1_cell_metadata.csv --sample_name MERFISH_Breast --zero_shot_cell_size 500 --tissue Breast --condition Disease --config_path /scratch/project_465001820/Spatialformer/spatialformer/config/_config_fine_tune_probe.json --batch_size 32
+#For Column
+# srun /scratch/project_465001820/miniconda3/envs/spatialformer_flash_attn/bin/python cell_cell_communication_zero_shot_multi_platform.py --radius 30 --fine_tune_mode full_tune --cell_by_gene_path /scratch/project_465001820/Spatialformer_main_practice/data/MERFISH_Colon/HumanColonCancerPatient1_cell_by_gene.csv --cell_meta_path /scratch/project_465001820/Spatialformer_main_practice/data/MERFISH_Colon/HumanColonCancerPatient1_cell_metadata.csv --sample_name MERFISH_Colon --zero_shot_cell_size 500 --tissue Colon --condition Disease --config_path /scratch/project_465001820/Spatialformer/spatialformer/config/_config_fine_tune_probe.json --batch_size 32
+
+#For LoRA experiments(100k)
+#For Lung
+# srun /scratch/project_465001820/miniconda3/envs/spatialformer_flash_attn/bin/python cell_cell_communication_zero_shot_multi_platform.py --radius 30 --fine_tune_mode lora --rank 64 --lora_alpha 128 --cell_by_gene_path /scratch/project_465001820/Spatialformer_main_practice/data/MERFISH_Lung/HumanLungCancerPatient1_cell_by_gene.csv --cell_meta_path /scratch/project_465001820/Spatialformer_main_practice/data/MERFISH_Lung/HumanLungCancerPatient1_cell_metadata.csv --sample_name MERFISH_Lung --zero_shot_cell_size 500 --tissue Lung --condition Disease --config_path /scratch/project_465001820/Spatialformer/spatialformer/config/_config_fine_tune_probe.json --batch_size 32
+#For Breast
+# srun /scratch/project_465001820/miniconda3/envs/spatialformer_flash_attn/bin/python cell_cell_communication_zero_shot_multi_platform.py --radius 30 --fine_tune_mode lora --rank 64 --lora_alpha 128 --cell_by_gene_path /scratch/project_465001820/Spatialformer_main_practice/data/MERFISH_Breast/HumanBreastCancerPatient1_cell_by_gene.csv --cell_meta_path /scratch/project_465001820/Spatialformer_main_practice/data/MERFISH_Breast/HumanBreastCancerPatient1_cell_metadata.csv --sample_name MERFISH_Breast --zero_shot_cell_size 500 --tissue Breast --condition Disease --config_path /scratch/project_465001820/Spatialformer/spatialformer/config/_config_fine_tune_probe.json --batch_size 32
+#For Column
+# srun /scratch/project_465001820/miniconda3/envs/spatialformer_flash_attn/bin/python cell_cell_communication_zero_shot_multi_platform.py --radius 30 --fine_tune_mode lora --rank 64 --lora_alpha 128 --cell_by_gene_path /scratch/project_465001820/Spatialformer_main_practice/data/MERFISH_Colon/HumanColonCancerPatient1_cell_by_gene.csv --cell_meta_path /scratch/project_465001820/Spatialformer_main_practice/data/MERFISH_Colon/HumanColonCancerPatient1_cell_metadata.csv --sample_name MERFISH_Colon --zero_shot_cell_size 500 --tissue Colon --condition Disease --config_path /scratch/project_465001820/Spatialformer/spatialformer/config/_config_fine_tune_probe.json --batch_size 32
+
+
+#For LoRA experiments(10k)
+#For Lung
+# srun /scratch/project_465001820/miniconda3/envs/spatialformer_flash_attn/bin/python cell_cell_communication_zero_shot_multi_platform.py --radius 30 --fine_tune_mode lora --rank 64 --lora_alpha 128 --cell_by_gene_path /scratch/project_465001820/Spatialformer_main_practice/data/MERFISH_Lung/HumanLungCancerPatient1_cell_by_gene.csv --cell_meta_path /scratch/project_465001820/Spatialformer_main_practice/data/MERFISH_Lung/HumanLungCancerPatient1_cell_metadata.csv --sample_name MERFISH_Lung --zero_shot_cell_size 500 --tissue Lung --condition Disease --config_path /scratch/project_465001820/Spatialformer/spatialformer/config/_config_fine_tune_probe.json --batch_size 32 --max_cells 10000
+#For Breast
+# srun /scratch/project_465001820/miniconda3/envs/spatialformer_flash_attn/bin/python cell_cell_communication_zero_shot_multi_platform.py --radius 30 --fine_tune_mode lora --rank 64 --lora_alpha 128 --cell_by_gene_path /scratch/project_465001820/Spatialformer_main_practice/data/MERFISH_Breast/HumanBreastCancerPatient1_cell_by_gene.csv --cell_meta_path /scratch/project_465001820/Spatialformer_main_practice/data/MERFISH_Breast/HumanBreastCancerPatient1_cell_metadata.csv --sample_name MERFISH_Breast --zero_shot_cell_size 500 --tissue Breast --condition Disease --config_path /scratch/project_465001820/Spatialformer/spatialformer/config/_config_fine_tune_probe.json --batch_size 32 --max_cells 10000
+#For Colon
+# srun /scratch/project_465001820/miniconda3/envs/spatialformer_flash_attn/bin/python cell_cell_communication_zero_shot_multi_platform.py --radius 30 --fine_tune_mode lora --rank 64 --lora_alpha 128 --cell_by_gene_path /scratch/project_465001820/Spatialformer_main_practice/data/MERFISH_Colon/HumanColonCancerPatient1_cell_by_gene.csv --cell_meta_path /scratch/project_465001820/Spatialformer_main_practice/data/MERFISH_Colon/HumanColonCancerPatient1_cell_metadata.csv --sample_name MERFISH_Colon --zero_shot_cell_size 500 --tissue Colon --condition Disease --config_path /scratch/project_465001820/Spatialformer/spatialformer/config/_config_fine_tune_probe.json --batch_size 32 --max_cells 10000
+
+
+#full fine-tuning test (100k cells)
+# srun /scratch/project_465001820/miniconda3/envs/spatialformer_flash_attn/bin/python cell_cell_communication_zero_shot_multi_platform.py --radius 30 --fine_tune_mode zero_shot --rank 64 --lora_alpha 128 --cell_by_gene_path /scratch/project_465001820/Spatialformer_main_practice/data/MERFISH_Lung/HumanLungCancerPatient1_cell_by_gene.csv --cell_meta_path /scratch/project_465001820/Spatialformer_main_practice/data/MERFISH_Lung/HumanLungCancerPatient1_cell_metadata.csv --sample_name MERFISH_Lung --tissue Lung --condition Disease --config_path /scratch/project_465001820/Spatialformer/spatialformer/config/_config_fine_tune_probe.json --max_cells 100000
+# srun /scratch/project_465001820/miniconda3/envs/spatialformer_flash_attn/bin/python cell_cell_communication_zero_shot_multi_platform.py --radius 30 --fine_tune_mode zero_shot --rank 64 --lora_alpha 128 --cell_by_gene_path /scratch/project_465001820/Spatialformer_main_practice/data/MERFISH_Breast/HumanBreastCancerPatient1_cell_by_gene.csv --cell_meta_path /scratch/project_465001820/Spatialformer_main_practice/data/MERFISH_Breast/HumanBreastCancerPatient1_cell_metadata.csv --sample_name MERFISH_Breast --tissue Breast --condition Disease --config_path /scratch/project_465001820/Spatialformer/spatialformer/config/_config_fine_tune_probe.json --max_cells 100000
+# srun /scratch/project_465001820/miniconda3/envs/spatialformer_flash_attn/bin/python cell_cell_communication_zero_shot_multi_platform.py --radius 30 --fine_tune_mode zero_shot --rank 64 --lora_alpha 128 --cell_by_gene_path /scratch/project_465001820/Spatialformer_main_practice/data/MERFISH_Colon/HumanColonCancerPatient1_cell_by_gene.csv --cell_meta_path /scratch/project_465001820/Spatialformer_main_practice/data/MERFISH_Colon/HumanColonCancerPatient1_cell_metadata.csv --sample_name MERFISH_Colon --tissue Colon --condition Disease --config_path /scratch/project_465001820/Spatialformer/spatialformer/config/_config_fine_tune_probe.json --max_cells 100000

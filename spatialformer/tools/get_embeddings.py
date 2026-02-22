@@ -281,8 +281,8 @@ def embed_data(
     tissue: str, 
     condition: str,
     method: str,
-    model_ckp_path: str, 
-    batch_size: int,
+    model_ckp_path: str = None, 
+    batch_size: int = 4,
     config_path: str = get_file_path("config", "_config_train_large_pair.json"),
     token_path: str = get_file_path("tokenizer", "tokenv5.json"),
     mode: str = "single",
@@ -392,25 +392,28 @@ def embed_data(
     
     # Create model architecture
     model = manual_train_fm(config=config)
-    
-    # Load pretrained weights
+    if not only_loader:
+        
+        
+        # Load pretrained weights
 
-    if resume_before_5k:
-        # Prepare checkpoint with extended embeddings
-        logger.info(f"Loading the ckp before the 5k panel")
-        model_ckp_path = prepare_extended_checkpoint(model, model_ckp_path)
+        if resume_before_5k:
+            # Prepare checkpoint with extended embeddings
+            logger.info(f"Loading the ckp before the 5k panel")
+            model_ckp_path = prepare_extended_checkpoint(model, model_ckp_path)
 
 
-    checkpoint = torch.load(model_ckp_path, map_location=device)
-    model.load_state_dict(checkpoint["state_dict"])
-    
-    # Set to evaluation mode (disables dropout, etc.)
-    logger.info("Setting the model to evaluation mode...")
-    model.eval()
-    
-    # Move model to appropriate device
-    logger.info(f"Model mapped to device: {device}")
-    model.to(device)
+        checkpoint = torch.load(model_ckp_path, map_location=device)
+        model.load_state_dict(checkpoint["state_dict"])
+        
+        # Set to evaluation mode (disables dropout, etc.)
+        logger.info("Setting the model to evaluation mode...")
+        model.eval()
+        
+        # Move model to appropriate device
+        logger.info(f"Model mapped to device: {device}")
+        model.to(device)
+
 
     # -------------------------------------------------------------------------
     # Step 3: Process Based on Mode

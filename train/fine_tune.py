@@ -155,32 +155,94 @@ def data_prepare(sample_name, kfold, num_workers, batch_size, radius=30, test_si
         return test_dataloader
 
 class FineTune:
-    def __init__(self, config, ckp_path, sample_name, radius, fine_tune_mode, wandb, strategy, lora_ckp_path=None):
+    """
+    A class for fine-tuning the Spatialformer model on cell-cell communication tasks.
+    
+    Supports multiple fine-tuning modes including zero-shot evaluation, LoRA fine-tuning,
+    linear probing, and full model fine-tuning. Handles distributed training across
+    multiple GPUs and nodes using PyTorch Lightning.
+    
+    Attributes:
+        config (dict): Configuration dictionary containing model hyperparameters and paths.
+        sample_name (str): Name of the sample/dataset being processed (e.g., "VUILD110").
+        fold (int or None): Current fold number for k-fold cross-validation, None if not set.
+        wandb (bool): Whether to enable Weights & Biases logging.
+        radius (int): The spatial radius threshold for defining cell-cell proximity.
+        strategy (str): PyTorch Lightning distributed training strategy (e.g., "ddp").
+        total_steps (int): Total number of training steps from config.
+        fine_tune_mode (str): Fine-tuning mode - one of "zero_shot", "lora", "probe", or "full_tune".
+        output_dir (str): Directory path for saving outputs and checkpoints.
+        base_model: The pre-trained Spatialformer language model (if loading from pretrained).
+        probe_model (FTNetwork): The fine-tuning network wrapping the base model.
+        lora_ckp_path (str): Path to LoRA checkpoint (if loading from fine-tuned model).
+        gpus (int): Number of available CUDA GPUs detected.
+        num_nodes (int): Number of compute nodes for distributed training (from SLURM).
+        trainer (pl.Trainer or None): PyTorch Lightning trainer instance, None until set.
+    """
+    
+    def __init__(self, config: dict = None, sample_name: str = None, radius: int = 30, fine_tune_mode: str = "lora", wandb: bool = False, strategy: str = "ddp", rank: int = 8, lora_alpha: int = 16):
+        """
+        Initialize the FineTune class with model configuration and training parameters.
+        
+        Args:
+            config (dict): Configuration dictionary containing:
+                - "total_step" (int): Total training steps.
+                - "resume_from_local_checkpoint" (str): Path to model checkpoint.
+                - Other model hyperparameters required by FTNetwork.
+            sample_name (str): Identifier for the dataset sample being processed.
+            radius (int): Spatial radius (in pixels/units) for cell proximity detection.
+            fine_tune_mode (str): Mode of fine-tuning. Options:
+                - "zero_shot": Evaluate without training.
+                - "lora": Low-Rank Adaptation fine-tuning.
+                - "probe": Linear probing (freeze base, train classifier).
+                - "full_tune": Fine-tune entire model.
+            wandb (bool): If True, enable Weights & Biases experiment logging.
+            strategy (str): PyTorch Lightning distributed strategy (e.g., "ddp", "ddp_spawn").
+            rank (int): Rank parameter for LoRA fine-tuning.
+            lora_alpha (int): Alpha parameter for LoRA fine-tuning.
+        
+        Raises:
+            FileNotFoundError: If checkpoint path in config doesn't exist.
+            KeyError: If required keys are missing from config dictionary.
+        
+        Note:
+            - Creates output directory if it doesn't exist.
+            - Automatically detects GPU count and SLURM node configuration.
+            - Loads either pre-trained weights or fine-tuned LoRA checkpoint based on
+              whether "lora" appears in the checkpoint path.
+        """
         self.config = config
         self.sample_name = sample_name
-        self.fold = None
+        self.fold = None  # Will be set during k-fold training
         self.wandb = wandb
         self.radius = radius
         self.strategy = strategy
         self.total_steps = config["total_step"]
         self.fine_tune_mode = fine_tune_mode
-        # import pdb; pdb.set_trace()
-        self.base_model = self.load_pretrained_lm_weights(config, ckp_path) #loading the parameters of the model
+        self.rank = rank
+        self.lora_alpha = lora_alpha
+        
+        # Setup output directory for checkpoints and logs
         self.output_dir = "/scratch/project_465001820/Spatialformer/output/fine_tune"
         os.makedirs(self.output_dir, exist_ok=True)
+        
+        # Load model based on checkpoint type
         if "lora" not in config["resume_from_local_checkpoint"]:
-            print("load the ckp from arguments")
-            self.probe_model = FTNetwork(self.base_model, fine_tune_mode = fine_tune_mode, outer_config = config) #here is the proximity or not
+            # Loading from original pre-trained Spatialformer checkpoint
+            print("load the ckp from the pre-trained spatialformer model with key: resume_from_local_checkpoint")
+            self.base_model = self.load_pretrained_lm_weights(config)  # Load pre-trained weights
+            self.probe_model = FTNetwork(self.base_model, fine_tune_mode=fine_tune_mode, outer_config=config, rank=rank, lora_alpha=lora_alpha)
         else:
-            print("load the ckp from the config file with key: resume_from_local_checkpoint")
+            # Loading from previously fine-tuned LoRA checkpoint
+            print("load the ckp from the fine-tuned model config file with key: resume_from_local_checkpoint")
             self.lora_ckp_path = config["resume_from_local_checkpoint"]
             self.probe_model = self.load_finetuned_model_from_lightning(config)
-        self.gpus = torch.cuda.device_count()
-        # self.gpus = 1
-        # import pdb; pdb.set_trace()
-        self.num_nodes = int(os.environ.get('SLURM_JOB_NUM_NODES', 1))
+        
+        # Setup distributed training configuration
+        self.gpus = torch.cuda.device_count()  # Detect available GPUs
+        self.num_nodes = int(os.environ.get('SLURM_JOB_NUM_NODES', 1))  # Get SLURM node count
         print(f"The number of GPUS: {self.gpus}")
-        self.trainer = None
+        self.trainer = None  # Trainer initialized lazily via set_trainer()
 
     def make_callback(self):
         # Callbacks
@@ -188,7 +250,8 @@ class FineTune:
         ModelCheckpoint(
             dirpath=os.path.join(self.output_dir, "checkpoints"),
             filename=f"{{step:07d}}-{{train_total_loss:.4f}}_{self.sample_name}_{self.fold}_{self.radius}_{self.fine_tune_mode}_{self.total_steps}",
-            every_n_train_steps=100,
+            every_n_train_steps=500,
+            save_weights_only=True,
             save_top_k=-1,
             # every_n_epochs=1,
             monitor='train_total_loss',
@@ -210,8 +273,8 @@ class FineTune:
             # plugins=[SLURMEnvironment(requeue_signal=signal.SIGUSR1)],
             accelerator="auto",
             devices=self.gpus,
-            check_val_every_n_epoch=1,
-            # val_check_interval = 0.1,
+            # check_val_every_n_epoch=1,
+            val_check_interval = 0.1,
             max_steps=self.config["total_step"],
             default_root_dir=self.output_dir,
             num_sanity_val_steps=0,
@@ -235,17 +298,18 @@ class FineTune:
         return self.probe_model
         # self.trainer.fit(self.plmodel, train_dataloader, val_dataloader)
         # self.data_module.save_state(self.resume_index_path)
-    def test(self, probe_model, test_dataloader):
+    def test(self, test_dataloader):
         self.set_trainer()
-        probe_model.eval()
+        self.probe_model.eval()
         with torch.no_grad():
-            # import pdb; pdb.set_trace()
+
             print("before testing")
-            results = self.trainer.test(probe_model, test_dataloader)
+            results = self.trainer.test(self.probe_model, test_dataloader)
             print("after testing")
         return results
-    def load_pretrained_lm_weights(self, config, ckp_path):
+    def load_pretrained_lm_weights(self, config):
         base_model = manual_train_fm(config=config)
+        ckp_path = config["resume_from_local_checkpoint"]
         ckp = torch.load(ckp_path, map_location=device)
         params = ckp["state_dict"]
         base_model.load_state_dict(params)
@@ -254,31 +318,22 @@ class FineTune:
         return base_model
     def load_finetuned_model_from_lightning(self, config):
         """Load fine-tuned model from Lightning checkpoint"""
-        # Create fresh model structure
+        
+        # Create fresh base model
         base_model = manual_train_fm(config=config)
-        probe_model = FTNetwork(base_model, fine_tune_mode=self.fine_tune_mode, outer_config=config)
         
-        # Load checkpoint
-        ckp = torch.load(self.lora_ckp_path, map_location=device)
-        
-        # Handle potential prefix issues
-        state_dict = ckp["state_dict"]
-        
-        # Remove common prefixes added by Lightning
-        new_state_dict = {}
-        for k, v in state_dict.items():
-            # Remove 'model.' prefix if exists (Lightning sometimes adds this)
-            new_key = k.replace("model.", "") if k.startswith("model.") else k
-            new_state_dict[new_key] = v
-        
-        missing, unexpected = probe_model.load_state_dict(new_state_dict, strict=False)
-        
-        if missing:
-            print(f"Missing keys: {missing}")
-        if unexpected:
-            print(f"Unexpected keys: {unexpected}")
-        
-        probe_model.to(device)
+        # Option 1: Load and merge LoRA weights (for inference)
+        probe_model = FTNetwork.load_from_checkpoint_with_merge(
+            checkpoint_path=self.lora_ckp_path,
+            base_model=base_model,
+            fine_tune_mode=self.fine_tune_mode,
+            outer_config=config,
+            rank=self.rank,
+            lora_alpha=self.lora_alpha,
+            device=device,
+            strict=False
+        )
+        # import pdb; pdb.set_trace()
         return probe_model
 
 

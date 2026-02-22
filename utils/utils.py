@@ -957,18 +957,18 @@ class Lora:
         self.lora_config = lora_config
 
     def wrapper(self, model = None):
-        # import pdb; pdb.set_trace()
+
         lora_config = LoraConfig(
                 r=self.lora_config["r"], # Rank
                 lora_alpha=self.lora_config["lora_alpha"],
                 target_modules=self.lora_config["target_modules"],
+                modules_to_save=self.lora_config["modules_to_save"],
                 lora_dropout=0.05,
                 bias="none"
             )
-        
-        
+
         peft_model = get_peft_model(model, lora_config)
-        # import pdb; pdb.set_trace()
+
         return peft_model
     @staticmethod
     def print_number_of_trainable_model_parameters(model):

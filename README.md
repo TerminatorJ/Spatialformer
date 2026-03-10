@@ -41,7 +41,6 @@ Spatial transcriptomics quantifies gene expression within its spatial context, s
 
 
 
-s
 ## Tutorials
 
 For the instructions of SpatialFormer, please refer to our jupyter notebook (some in the .py files) [tutorials](downstream/) on:

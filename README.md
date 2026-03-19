@@ -1,6 +1,6 @@
 ---
 
-This is the official codebase for the SpatialFormer, the first single cell spatial foundation model to learn the universal representation (subcellular molecular & cellular spatial proximity) by multi-tasks learning.
+This is the official SpatialFormer codebase. SpatialFormer is the first single-cell spatial foundation model that learns universal representations of subcellular molecular and cellular spatial proximity through multi-task learning.
 
 [![License](https://img.shields.io/badge/license-MIT-blue)](https://github.com/username/repo/blob/main/LICENSE)
 ![PyPI - Downloads](https://img.shields.io/pypi/dm/spatialformer)
@@ -11,7 +11,7 @@ This is the official codebase for the SpatialFormer, the first single cell spati
 ![SpatialFormer](./rm_figs/github_main_figure.png)
 
 ## Overview
-Spatial transcriptomics quantifies gene expression within its spatial context, significantly advancing biomedical research. Understanding gene spatial expression and the organization of multicellular systems is vital for disease diagnosis and studying biological processes. However, existing models often struggle to integrate gene expression data with cellular spatial information effectively. In this study, we introduce SpatialFormer, a hybrid framework combining convolutional networks and transformers to learn single-cell multimodal and multi-scale information in the niche context, including expression data and subcellular gene spatial distribution. Pre-trained on 300 million cell pairs from 12 million spatially resolved single cells across 62 Xenium slides, SpatialFormer merges gene spatial expression profiles with cell niche information via the pair-wise training strategy. Our findings demonstrate that SpatialFormer distills biological signals across various tasks, including single-cell batch correction, cell-type annotation, co-localization detection, and identifying gene pairs that are critical for the immune cell-cell interactions involved in the regulation of lung fibrosis. These advancements enhance our understanding of cellular dynamics and offer new pathways for applications in biomedical research. 
+Spatial transcriptomics quantifies gene expression within its spatial context, making significant advances in biomedical research possible. Understanding the spatial expression of genes and how multicellular systems are organised is vital for diagnosing diseases and studying biological processes. However, existing models often struggle to effectively integrate gene expression data with cellular spatial information. In this study, we introduce SpatialFormer: a hybrid framework that combines convolutional networks and transformers in order to learn single-cell multi-scale information within a niche context. This includes expression data and the subcellular spatial distribution of genes. Pre-trained on 700 million cell pairs from 17 million spatially resolved single cells across 71 Xenium slides, SpatialFormer merges gene spatial expression profiles with cell niche information via a pairwise training strategy. Our findings demonstrate that SpatialFormer can distil biological signals across various tasks, including single-cell batch correction, cell-type annotation, co-localisation detection and the identification of gene pairs critical to immune cell-cell interactions involved in the regulation of lung fibrosis. These advancements enhance our understanding of cellular dynamics and open up new avenues for applications in biomedical research. 
 
 
 ## Updates
@@ -29,7 +29,6 @@ Spatial transcriptomics quantifies gene expression within its spatial context, s
   - easy negative pairs [cache-pairs]()
   - faiss-based nearest neighbors search [cache-faiss]()
   - index-based storage for p/n pairs, which save large amount of memory usage
-  - 
 - Upgraded to **GraphSAGE v2**, supporting 6,036 spatial embeddings
 - Integrated **FlashAttention v2** for efficient long-sequence processing
 

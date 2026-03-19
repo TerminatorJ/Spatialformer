@@ -63,7 +63,7 @@ The fine-tuning tutorials
 
 ## System Requirements
 ### Hardware requirements
-We provide the GPU and CPU version for users with different device levels. However, if a large scale of cells need to be calculated, the GPUs is mandatory to get the results effeciently. When using GPUs, AMD and IVIDIA GPUs are all supported.
+We provide the GPU and CPU version for users with different device levels. However, if a large scale of cells need to be calculated, the GPUs is mandatory to get the results effeciently. When using GPUs, AMD and NVIDIA GPUs are all supported.
 ### Software requirements
 #### OS requirements
 This package is supported for macOS and Linux. The package has been tested on the following systems:

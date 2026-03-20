@@ -1,6 +1,6 @@
 LICENSE
 MANIFEST.in
-README.md
+requirements.txt
 setup.py
 spatialformer/GraphSAGE.py
 spatialformer/__init__.py
@@ -15,9 +15,13 @@ spatialformer.egg-info/dependency_links.txt
 spatialformer.egg-info/requires.txt
 spatialformer.egg-info/top_level.txt
 spatialformer/config/__init__.py
+spatialformer/config/_config_fine_tune_probe.json
 spatialformer/config/_config_graphsave.json
 spatialformer/config/_config_train.json
 spatialformer/config/_config_train_large_pair.json
+spatialformer/config/_config_train_large_single.json
+spatialformer/dataloader/__init__.py
+spatialformer/dataloader/dataloader_paired.py
 spatialformer/gene_gene_calculation/__init__.py
 spatialformer/gene_gene_calculation/build_h5ad.py
 spatialformer/gene_gene_calculation/find_gene_interaction.py
@@ -28,8 +32,11 @@ spatialformer/model/Spaformer.py
 spatialformer/model/Spaformer_pair.py
 spatialformer/model/__init__.py
 spatialformer/model/model.py
+spatialformer/model/settings.py
 spatialformer/model/submodules/__init__.py
+spatialformer/model/submodules/activations.py
 spatialformer/model/submodules/alibi.py
+spatialformer/model/submodules/flash_attention2.py
 spatialformer/model/submodules/layer_modules.py
 spatialformer/model/submodules/masked_batchnorm.py
 spatialformer/model/submodules/masked_conv.py
@@ -43,5 +50,6 @@ spatialformer/tokenizer/token.json
 spatialformer/tokenizer/tokenv2.json
 spatialformer/tokenizer/tokenv3.json
 spatialformer/tokenizer/tokenv4.json
+spatialformer/tokenizer/tokenv5.json
 spatialformer/tools/__init__.py
 spatialformer/tools/get_embeddings.py

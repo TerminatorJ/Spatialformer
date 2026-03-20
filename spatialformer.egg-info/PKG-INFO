@@ -1,13 +1,13 @@
-Metadata-Version: 2.1
+Metadata-Version: 2.4
 Name: spatialformer
-Version: 0.0.20
-Summary: A single-cell foundation model focus on the spatial cell-cell colocalization
+Version: 0.1.0
+Summary: A single-cell foundation model focus on the spatial cell-cell colocalization and subcellular mulecular co-occurrence
 Home-page: https://github.com/TerminatorJ/Spatialformer/
 Author: TerminatorJ
 Author-email: wangjun19950708@gmail.com
 Classifier: Programming Language :: Python :: 3
 Classifier: License :: OSI Approved :: MIT License
-Requires-Python: >=3.8
+Requires-Python: >=3.10
 License-File: LICENSE
 Requires-Dist: anndata==0.8.0
 Requires-Dist: communities==3.0.0
@@ -36,3 +36,14 @@ Requires-Dist: torchmetrics==0.11.4
 Requires-Dist: tqdm==4.66.5
 Requires-Dist: umap==0.1.1
 Requires-Dist: umap_learn==0.5.4
+Requires-Dist: openpyxl==3.1.5
+Requires-Dist: wandb==0.14.0
+Requires-Dist: louvain==0.8.2
+Dynamic: author
+Dynamic: author-email
+Dynamic: classifier
+Dynamic: home-page
+Dynamic: license-file
+Dynamic: requires-dist
+Dynamic: requires-python
+Dynamic: summary

@@ -6,16 +6,16 @@ with open('./requirements.txt', 'r') as f:
 
 setup(
     name='spatialformer',  
-    version='0.0.20',
+    version='0.1.0',
     author='TerminatorJ',
     author_email='wangjun19950708@gmail.com',
-    description='A single-cell foundation model focus on the spatial cell-cell colocalization',
+    description='A single-cell foundation model focus on the spatial cell-cell colocalization and subcellular mulecular co-occurrence',
     url='https://github.com/TerminatorJ/Spatialformer/', 
     classifiers=[
         'Programming Language :: Python :: 3',
         'License :: OSI Approved :: MIT License', 
     ],
-    python_requires='>=3.8', 
+    python_requires='>=3.10', 
     install_requires=requirements,
     include_package_data=True,
     package_data={

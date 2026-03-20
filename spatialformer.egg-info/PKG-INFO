@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: spatialformer
-Version: 0.1.1
+Version: 0.1.2
 Summary: A single-cell foundation model focus on the spatial cell-cell colocalization and subcellular mulecular co-occurrence
 Home-page: https://github.com/TerminatorJ/Spatialformer/
 Author: TerminatorJ
@@ -15,7 +15,6 @@ Requires-Dist: datasets>=3.0.1
 Requires-Dist: h5py>=3.11.0
 Requires-Dist: matplotlib>=3.7.3
 Requires-Dist: networkx>=3.0
-Requires-Dist: numba>=0.56.4
 Requires-Dist: numpy>=1.22.0
 Requires-Dist: pandas>=2.0.3
 Requires-Dist: peft>=0.8.2

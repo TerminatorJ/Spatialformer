@@ -83,7 +83,7 @@ If you are using the AMD gpus
 ```bash
 pip install spatialformer --extra-index-url https://download.pytorch.org/whl/rocm6.0
 ```
-Alternatively, if you are using the NVDIA gpus
+Alternatively, if you are using the NVIDIA gpus
 ```bash
 pip install spatialformer --extra-index-url https://download.pytorch.org/whl/cu121
 ```

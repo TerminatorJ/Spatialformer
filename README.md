@@ -77,43 +77,39 @@ conda create -n spatialformer python=3.10
 ```
 
 ## Installation
-PyTorch should be installed first to ensure compatibility with different operating systems.
+### Step 1: Install PyTorch
 
-For ***Linux*** supports two GPU options; 
-If you are using the ***AMD*** GPUs
+PyTorch must be installed **before** spatialformer to ensure compatibility with your operating system and GPU.
+
+#### Linux (AMD GPU — ROCm 6.0)
 ```bash
-pip install torch==2.3.1+rocm6.0 torchvision==0.18.1+rocm6.0 torchaudio==2.3.1+rocm6.0 --index-url https://download.pytorch.org/whl/rocm6.0
+pip install torch==2.3.1 torchvision==0.18.1 torchaudio==2.3.1 --index-url https://download.pytorch.org/whl/rocm6.0
 ```
-Alternatively, if you are using the ***NVIDIA*** gpus
+#### Linux (NVIDIA GPU — CUDA 12.1)
 ```bash
 pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
 ```
-For ***Mac***
+
+#### macOS
 ```bash
 pip install torch torchvision torchaudio
 ```
+Note: On Mac, only CPU and MPS (Apple Silicon) backends are supported.
 
-### Install spatialformer from PyPi
+---
+### Step 2: Install spatialformer
+#### Option A: From PyPI
 ```bash
 pip install spatialformer
 ```
-
-
-
-### Install from Github
+#### Option B: From GitHub (development mode)
 ```bash
-git clone https://github.com/TerminatorJ/Spatialformer/
+git clone https://github.com/TerminatorJ/Spatialformer.git
 cd Spatialformer
+pip install -e . 
 ```
-if you are using the AMD gpus
-```bash
-pip install -e --extra-index-url https://download.pytorch.org/whl/rocm6.0
-```
-whereas, if you are using the NVIDIA gpus
-```bash
-pip install -e --extra-index-url https://download.pytorch.org/whl/cu121
-```
-
+---
+### Step 3 (Optional): Install FlashAttention
 
 **FlashAttention** is required to accelerate training and inference while maintaining accuracy.  
 Before that, nvcc(CUDA compiler) should be detected in your device by installing the nvcc via

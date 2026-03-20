@@ -75,7 +75,7 @@ Create the spatialformer environment by anaconda (python >= 3.10 required)
 ```bash
 conda create -n spatialformer python=3.10
 ```
-enter the spatialformer environment
+Then, enter the spatialformer environment
 ```bash
 source activate spatialformer
 ```

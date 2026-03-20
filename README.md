@@ -77,16 +77,28 @@ conda create -n spatialformer python=3.10
 ```
 
 ## Installation
+PyTorch should be installed first to ensure compatibility with different operating systems.
 
-### Install from PyPi
-If you are using the AMD gpus
+For ***Linux*** supports two GPU options; 
+If you are using the ***AMD*** GPUs
 ```bash
-pip install spatialformer --extra-index-url https://download.pytorch.org/whl/rocm6.0
+pip install torch==2.3.1+rocm6.0 torchvision==0.18.1+rocm6.0 torchaudio==2.3.1+rocm6.0 --index-url https://download.pytorch.org/whl/rocm6.0
 ```
-Alternatively, if you are using the NVIDIA gpus
+Alternatively, if you are using the ***NVIDIA*** gpus
 ```bash
-pip install spatialformer --extra-index-url https://download.pytorch.org/whl/cu121
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
 ```
+For ***Mac***
+```bash
+pip install torch torchvision torchaudio
+```
+
+### Install spatialformer from PyPi
+```bash
+pip install spatialformer
+```
+
+
 
 ### Install from Github
 ```bash

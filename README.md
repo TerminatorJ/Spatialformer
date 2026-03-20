@@ -92,7 +92,7 @@ For ***Mac***
 ```bash
 pip install torch torchvision torchaudio
 ```
-
+---
 ### Install spatialformer from PyPi
 ```bash
 pip install spatialformer

@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: spatialformer
-Version: 0.1.2
+Version: 0.1.5
 Summary: A single-cell foundation model focus on the spatial cell-cell colocalization and subcellular mulecular co-occurrence
 Home-page: https://github.com/TerminatorJ/Spatialformer/
 Author: TerminatorJ
@@ -21,22 +21,27 @@ Requires-Dist: peft>=0.8.2
 Requires-Dist: pyarrow>=17.0.0
 Requires-Dist: python_louvain>=0.16
 Requires-Dist: pytorch_lightning>=1.9.4
-Requires-Dist: scanpy>=1.9.8
 Requires-Dist: scikit-learn>=1.3.2
 Requires-Dist: scipy>=1.10.1
 Requires-Dist: seaborn>=0.13.0
-Requires-Dist: torch_geometric>=2.5.3
 Requires-Dist: torchmetrics>=0.11.4
 Requires-Dist: tqdm>=4.66.5
-Requires-Dist: umap-learn>=0.5.4
 Requires-Dist: openpyxl>=3.1.5
 Requires-Dist: wandb>=0.14.0
 Requires-Dist: louvain>=0.8.2
+Provides-Extra: simulation
+Requires-Dist: sim-fish>=0.2.0; extra == "simulation"
+Requires-Dist: umap==0.1.1; extra == "simulation"
+Provides-Extra: numba
+Requires-Dist: torch_geometric>=2.5.3; extra == "numba"
+Requires-Dist: umap-learn>=0.5.4; extra == "numba"
+Requires-Dist: scanpy>=1.9.8; extra == "numba"
 Dynamic: author
 Dynamic: author-email
 Dynamic: classifier
 Dynamic: home-page
 Dynamic: license-file
+Dynamic: provides-extra
 Dynamic: requires-dist
 Dynamic: requires-python
 Dynamic: summary

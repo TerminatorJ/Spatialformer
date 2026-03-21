@@ -94,25 +94,25 @@ pip install torch torchvision torchaudio --index-url https://download.pytorch.or
 ```bash
 pip install torch torchvision torchaudio
 ```
-Note: On Mac, only CPU and MPS (Apple Silicon) backends are supported.
+Note: On Mac, only CPUs are currently supported.
 
 ---
 ### Step 2: Install spatialformer
-#### Option A: From PyPI
+Make sure cmake already installed, otherwise
+```bash
+conda install cmake
+```
+
 ```bash
 pip install spatialformer
 ```
-#### Option B: From GitHub (development mode)
-```bash
-git clone https://github.com/TerminatorJ/Spatialformer.git
-cd Spatialformer
-pip install -e . 
-```
+
+
 ---
 ### Step 3 (Optional): Install FlashAttention
 
 **FlashAttention** is required to accelerate training and inference while maintaining accuracy.  
-Before that, nvcc(CUDA compiler) should be detected in your device by installing the nvcc via
+Before that, CUDA compiler (nvcc) should be detected in your device. nvcc can be installed via
 ```bash
 conda install -c "nvidia/label/cuda-12.4.0" cuda-toolkit
 #check the installation of nvcc
@@ -121,6 +121,10 @@ nvcc --version
 When compilation is ready, let's install the flash-attention  
 
 To get started with the triton backend for **AMD**, follow the steps below.
+FlashAttention-2 ROCm CK backend currently supports ([reference](https://github.com/dao-ailab/flash-attention?tab=readme-ov-file#amd-rocm-support)):
+1. MI200x, MI250x, MI300x, and MI355x GPUs.
+2. Datatype fp16 and bf16
+3. Both forward's and backward's head dimensions up to 256.
 ```bash
 pip install triton
 ```
@@ -130,6 +134,8 @@ git clone https://github.com/Dao-AILab/flash-attention.git
 export FLASH_ATTENTION_TRITON_AMD_ENABLE="TRUE"
 cd flash-attention
 python setup.py install
+
+FLASH_ATTENTION_TRITON_AMD_ENABLE="TRUE" pip install --no-build-isolation .
 ```
 Finally, test whether it works normally.
 ```bash
@@ -151,6 +157,7 @@ pip install ./flash_attn-2.5.8+cu122torch2.3cxx11abiFALSE-cp310-cp310-linux_x86_
 We implement the FlashAttention(2.x) in our code, which is completely reweited and 2x faster than FlashAttention(1.x).
 
 
+---
 
 
 ## Pretraining data

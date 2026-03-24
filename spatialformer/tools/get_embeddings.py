@@ -38,6 +38,7 @@ import logging
 from typing import List, Optional, Tuple, Dict, Any, Union
 from torch.utils.data import Dataset, DataLoader
 from spatialformer.model import Spaformer
+from spatialformer import __file__ as pkg_file
 import pickle
 import anndata as ad
 import scipy.sparse as sp
@@ -80,7 +81,7 @@ def get_file_path(path: str, filename: str) -> str:
     return os.path.join(project_root, path, filename)
 
 
-def manual_train_fm(config: Dict[str, Any]) -> Spaformer:
+def manual_train_fm(config: Dict[str, Any], use_flash_attn: bool = False) -> Spaformer:
     """
     Initialize a Spaformer model with the specified configuration.
     
@@ -117,7 +118,7 @@ def manual_train_fm(config: Dict[str, Any]) -> Spaformer:
         n_tokens=config['n_tokens'],
         n_atokens=config['n_atokens'],
         warmup=config['warmup'],
-        use_flash_attn=config["use_flash_attn"],
+        use_flash_attn=use_flash_attn,
         lr=config['lr'],
         max_epochs=config['max_epochs'],
         mask_way=config['mask_way'], 
@@ -299,6 +300,7 @@ def embed_data(
     max_len: int = None,
     resume_before_5k: bool = None,
     reverse_check: bool = None,
+    use_flash_attn = False
 ):
     """
     Generate Spatialformer embeddings for cells in an AnnData object.
@@ -319,7 +321,8 @@ def embed_data(
                 
         condition: Condition token (e.g., "Disease", "Normal")
                    Must exist in tokenizer vocabulary
-                   
+        
+        assay: The method of getting the data (e.g. Merfish, Xenium)
         method: Embedding extraction method
                 - "cls": Use CLS token embedding as cell representation
                 - "gene": Use mean of gene token embeddings
@@ -357,6 +360,7 @@ def embed_data(
         max_len: The max length of the input sequence
         resume_before_5k: Bool, load the ckp before 5k
         reverse_check: Bool, whether to check reverse pairs for positive prediction. The 5k panel model doesn't need this because it was pretrained via anchor based solution.
+        use_flash_attn: Bool, whether to use flashattention. Default is False.
     Returns:
         For single mode:
             AnnData object with embeddings stored in adata.obsm["X_SpaF"]
@@ -386,6 +390,9 @@ def embed_data(
     # -------------------------------------------------------------------------
     with open(config_path, 'r') as json_file:
         config = json.load(json_file)
+    pkg_root = os.path.dirname(os.path.dirname(pkg_file))  # /path/to/spatialformer/
+    config["embedding_path"] = os.path.join(pkg_root, "spatial_embeddings/xenium_5k_pandavid_gene_embeddings.pkl")
+    logger.info("Redirected the GraphSAGE embedding_path...")
     
     # -------------------------------------------------------------------------
     # Step 2: Initialize and Load Model
@@ -394,7 +401,13 @@ def embed_data(
 
     # Create model architecture
 
-    model = manual_train_fm(config=config)
+    model = manual_train_fm(config = config, use_flash_attn = use_flash_attn)
+
+
+    if gene_median_path == None:
+        gene_median_path = os.path.join(pkg_root, "data/gene_median.pkl")
+        logger.info("Loading the gene median values...")
+
     if not only_loader:
         
         

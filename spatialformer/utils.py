@@ -1,24 +1,31 @@
 import os
 import pandas as pd 
 import numpy as np
+from scipy import stats
+from statsmodels.stats.multitest import multipletests
 from communities.algorithms import louvain_method
 import networkx as nx
 import torch
+import time
 from tqdm import tqdm
+from sklearn.model_selection import KFold
+from concurrent.futures import ProcessPoolExecutor
+from datasets.distributed import split_dataset_by_node
 import random
-from statsmodels.stats.multitest import multipletests
-from scipy import stats
+from collections import defaultdict, Counter
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
 from scipy.sparse import coo_matrix
-from typing import Dict, Union
+from typing import Dict, Optional, Union
 from scipy.spatial import KDTree 
 import matplotlib.pyplot as plt
 import pickle
 import random
 from torch.utils.data import Dataset, IterableDataset
 from itertools import combinations
+from sklearn.model_selection import KFold
 from sklearn.model_selection import train_test_split
-from datasets import load_from_disk, concatenate_datasets
+from datasets import load_from_disk, interleave_datasets, concatenate_datasets
+from peft import LoraConfig, get_peft_model, TaskType
 
 
 
@@ -151,26 +158,31 @@ class CustomIterableDataset:
         return all_train_iter_dataset, all_test_iter_dataset
 
 # dataloader = torch.utils.data.DataLoader(ids, num_workers=4)
-class DynamicHuggingFaceDatasetEval(IterableDataset):
-    def __init__(self, datapath):
-        '''
-        huggingface dataset
-        '''
-        self.datapath  = datapath
-    def load_dataset(self, path):
-        dataset = load_from_disk(path)
-        return dataset
 
-    def __iter__(self):
 
-        try:
-            dataset = self.load_dataset(self.datapath)
-        except FileNotFoundError:
-            print(f"{self.datapath} is not a valid dataset")
 
-        iter_dataset = dataset.to_iterable_dataset(num_shards=64).shuffle(buffer_size=10_000, seed=42)
+class NonRedundantSampler:
+    def __init__(self, total_samples, batch_size):
+        self.total_samples = total_samples
+        self.batch_size = batch_size
+        self.indices = np.random.permutation(total_samples)  # Shuffle indices
+        self.current_index = 0  # Track the index for sampling
 
-        yield from iter_dataset 
+    def sample(self):
+        # Check if we've finished all indices
+        if self.current_index >= self.total_samples:
+            self.indices = np.random.permutation(self.total_samples)  # Reshuffle
+            self.current_index = 0  # Reset index for the new sample
+
+        # Determine the end of the current batch
+        end_index = min(self.current_index + self.batch_size, self.total_samples)
+        batch_indices = self.indices[self.current_index:end_index]
+
+        # Update the current index
+        self.current_index = end_index
+
+        return batch_indices
+
 
 class DynamicHuggingFaceDataset(IterableDataset):
     def __init__(self, datapath, split):
@@ -179,59 +191,281 @@ class DynamicHuggingFaceDataset(IterableDataset):
         split: which split to access ('train' or 'test')
         shuffle: whether to shuffle the dataset
         '''
+        # self.current_index = resume_index
         all_files = os.listdir(datapath)  # Corrected method name
-        self.datasets_paths = [os.path.join(datapath, file) for file in all_files if file.endswith("pair")]
+        # self.datasets_paths = [os.path.join(datapath, file) for file in all_files if file.endswith("pair")] # train all the slides
+        self.datasets_paths = [os.path.join(datapath, file) for file in all_files if (("TIL" in file) & ("pair" in file)) or (("THD" in file) & ("pair" in file)) or (("VU" in file) & ("pair" in file))]
+        print("number of training slides:", len(self.datasets_paths))
+        # self.datasets_paths = [os.path.join(datapath, file) for file in all_files if file == "xenium_VUILD102LF_pair"]
         self.split = split
+        self.yield_counter = 0 
+    def load_dataset(self, path):
+        dataset = load_from_disk(path)
+        return dataset
+    def __len__(self):
+        counter = 0
+        for path in self.datasets_paths:
+            dataset = self.load_dataset(path)
+            counter += dataset.shape[0]
+        return counter
+
+    def __iter__(self):
+        
+        rank = torch.distributed.get_rank()  # Get current process rank
+        # random.seed(rank)
+        dynamic_seed = rank + int(time.time()/1000) 
+        random.seed(dynamic_seed)
+
+        while True:  # Continuous iteration
+            import pdb; pdb.set_trace()
+            datasets_path = random.choice(self.datasets_paths)  #  choose a dataset path
+            print("current datasets:", datasets_path)
+            if "THD0008" not in datasets_path:
+                try:
+                    dataset = self.load_dataset(datasets_path)
+                except FileNotFoundError:
+                    print(f"{datasets_path} is not a valid dataset")
+                    continue
+                
+                # Optionally limit the dataset size, or select a subset if needed
+                # dataset = dataset.select(range(1000))  # Load a subset for processing
+                # Determine the total number of samples available
+                # left_sample = 5000
+                total_samples = len(dataset)
+                n_samples = min(5000, total_samples)  # Ensure not to exceed available samples
+
+                # Randomly select 5000 samples
+                selected_indices = np.random.choice(total_samples, size=n_samples, replace=False)
+                dataset = dataset.select(selected_indices)  # Load a subset for processing
+                split_dataset = dataset.train_test_split(test_size=0.001, seed=42)
+
+                if self.split == "train":
+                    # import pdb; pdb.set_trace()
+                    print(split_dataset["train"])
+                    # iter_dataset = split_dataset["train"].to_iterable_dataset(num_shards=64).shuffle(buffer_size=10_000)#for randomization
+                    iter_dataset = split_dataset["train"].to_iterable_dataset()#
+                elif self.split == "val":
+                    # import pdb; pdb.set_trace()
+                    print(split_dataset["test"])
+                    # iter_dataset = split_dataset["test"].to_iterable_dataset(num_shards=1)
+                    iter_dataset = split_dataset["test"].to_iterable_dataset()
+
+                # Yield samples from the current dataset
+                for sample in iter_dataset:
+                    # import pdb; pdb.set_trace()
+                    yield sample
+
+class DynamicHuggingFaceDataset2(IterableDataset):
+    def __init__(self, datapath, split, gpu_num):
+        '''
+        datapath: cache path
+        split: which split to access ('train' or 'test')
+        shuffle: whether to shuffle the dataset
+        '''
+        # self.current_index = resume_index
+        all_files = os.listdir(datapath)  # Corrected method name
+        self.datasets_paths = [os.path.join(datapath, file) for file in all_files if file.endswith("pair")] # train all the slides
+        # self.datasets_paths = [os.path.join(datapath, file) for file in all_files if (("TIL" in file) & ("pair" in file)) or (("THD" in file) & ("pair" in file)) or (("VU" in file) & ("pair" in file))]
+        print("number of training slides:", len(self.datasets_paths))
+        counter = 0
+        for path in self.datasets_paths:
+            dataset = self.load_dataset(path)
+            
+            try:
+                counter += dataset.shape[0]
+            except:
+                counter += dataset["train"].shape[0]
+        self.datasize = counter
+        # self.datasets_paths = [os.path.join(datapath, file) for file in all_files if file == "xenium_VUILD102LF_pair"]
+        self.split = split
+        self.gpu_num = gpu_num
+    def load_dataset(self, path):
+        dataset = load_from_disk(path)
+        return dataset
+    def __len__(self):
+        return int(self.datasize/self.gpu_num)
+
+    def __iter__(self):
+        
+        rank = torch.distributed.get_rank()  # Get current process rank
+        # random.seed(rank)
+        # dynamic_seed = rank + int(time.time()/1000) 
+        # random.seed(dynamic_seed)
+        # world_size = torch.distributed.get_world_size()  # Total number of processes (GPUs)
+
+        for datasets_path in self.datasets_paths:
+            # import pdb; pdb.set_trace()
+            print("current datasets:", datasets_path)
+            if "THD0008" not in datasets_path:
+                try:
+                    dataset = self.load_dataset(datasets_path)["train"]
+                except FileNotFoundError:
+                    print(f"{datasets_path} is not a valid dataset")
+                    continue
+                
+                split_dataset = dataset.train_test_split(test_size=0.001, seed=42)
+                data_subset = split_dataset['train'] if self.split == 'train' else split_dataset['test']
+                # Implement sharding
+                num_samples = len(data_subset)
+                samples_per_worker = num_samples // self.gpu_num
+                # Indices for the current worker
+                start_idx = rank * samples_per_worker
+                end_idx = start_idx + samples_per_worker if rank != self.gpu_num - 1 else num_samples
+                # Slice the dataset for the current worker
+                print(f"rank:{rank} is selecting: from {start_idx} to {end_idx}. total: {num_samples}, samples per worker: {samples_per_worker}")
+                sliced_dataset = data_subset.select(range(start_idx, end_idx))
+                if self.split == "val":
+                    iter_dataset = sliced_dataset.to_iterable_dataset()
+                elif self.split == "train":
+                    iter_dataset = sliced_dataset.to_iterable_dataset()
+                
+                # Yield samples from the current dataset
+                for sample in iter_dataset:
+                    # import pdb; pdb.set_trace()
+                    yield sample
+ 
+
+       
+class DynamicHuggingFaceDatasetFast(IterableDataset):
+    def __init__(self, sample_dataset, pair_index, labelget_adjs, split):
+        '''
+        huggingface dataset, this is used for fine-tuning
+        '''
+        self.sample_dataset  = sample_dataset
+        self.pair_index = pair_index
+        self.labels = labels
+        self.split = split
+        self.gpus = torch.cuda.device_count()
+        self.num_nodes = int(os.environ.get('SLURM_JOB_NUM_NODES', 1))
+        self.gpu_num = self.gpus*self.num_nodes
     def load_dataset(self, path):
         dataset = load_from_disk(path)
         return dataset
 
-    def __iter__(self):
-        # Iterate through datasets
-        for datasets_path in tqdm(self.datasets_paths):
-        # for i in tqdm(range(0, len(self.datasets_paths))):
-            # if i + 1 < len(self.datasets_paths):
-            #     pairs_path = [self.datasets_paths[i], self.datasets_paths[i + 1]]
-            # else:
-            #     pairs_path = [self.datasets_paths[i]]
+    def get_iter(self, rand_seed):
+        # import pdb; pdb.set_trace()
+        np.random.seed(rand_seed)
+        shuffled_indices = np.random.permutation(self.pair_index.shape[0])
+        left_idxs = self.pair_index[:,0][shuffled_indices]
+        right_idxs = self.pair_index[:,1][shuffled_indices]
+        left_dataset = self.sample_dataset.select(left_idxs)
+        right_dataset = self.sample_dataset.select(right_idxs)
 
-            # pair_dataset = []
-            # for path in pairs_path:
-            try:
-                dataset = self.load_dataset(datasets_path)
-            except FileNotFoundError:
-                print(f"{datasets_path} is not a valid dataset")
-                continue
-                # dataset = dataset[:10]###delete
-                # Split the dataset into train/test
-            # dataset = dataset.select(range(100))  ##delete
-            split_dataset = dataset.train_test_split(test_size=0.001, seed=42)
-            # split_dataset = dataset.train_test_split(test_size=0.001)
+        self.pair_index = self.pair_index[shuffled_indices]
+        self.labels = self.labels[shuffled_indices]
+        return left_dataset, right_dataset
+    def __len__(self):
+        return int(self.pair_index.shape[0]/self.gpu_num)
+    def __iter__(self):
+        
+        rank = torch.distributed.get_rank()  # Get current process rank
+        # random.seed(rank)
+        # random_value = random.randint(1, 1000)
+        dynamic_seed = rank + int(time.time()) 
+        random.seed(dynamic_seed)
+        np.random.seed(dynamic_seed)
+        # left_dataset, right_dataset = self.get_iter(dynamic_seed)
+        # import pdb; pdb.set_trace()
+        if self.split != "test":
+            while True:
                 # import pdb; pdb.set_trace()
-                ##   
-            print(split_dataset)
-                # Convert to IterableDataset
-            if self.split == "train":
-                iter_dataset = split_dataset["train"].to_iterable_dataset(num_shards=64)
-                    # pair_dataset.append(iter_dataset)
-                iter_dataset = iter_dataset.shuffle(buffer_size=10_000, seed=42)###
-                # iter_dataset = split_dataset_by_node(iter_dataset, world_size=64, rank=0)
-            elif self.split == "test":
-                iter_dataset = split_dataset["test"].to_iterable_dataset(num_shards=8)##8
-                # iter_dataset = split_dataset_by_node(iter_dataset, world_size=64, rank=0)
-            yield from iter_dataset 
-            # pair_dataset.append(iter_dataset)
-        # if pair_dataset:
-        #     if self.split == "train":
-        #         iter_pair_dataset = concatenate_datasets(pair_dataset)
-        #         iter_pair_dataset = iter_pair_dataset.shuffle(buffer_size=10_000, seed=42)
-        #         yield from iter_pair_dataset 
-        #     elif self.split == "test":
-        #         iter_pair_dataset = concatenate_datasets(pair_dataset)
-        #         yield from iter_pair_dataset
-        # else:
-        #     print("No valid datasets found in the current pair.")
- 
+                total_samples = len(self.labels)
+                n_samples = min(5000, total_samples)
+                selected_indices = np.random.choice(total_samples, size=n_samples, replace=False)
+                left_idxs = self.pair_index[:,0][selected_indices]
+                right_idxs = self.pair_index[:,1][selected_indices]
+
+                left_dataset = self.sample_dataset.select(left_idxs)
+                right_dataset =  self.sample_dataset.select(right_idxs)
+                selected_pairs = self.pair_index[selected_indices]
+                selected_labels = self.labels[selected_indices]
+                left_iter_dataset = left_dataset.to_iterable_dataset(num_shards=64)
+                right_iter_dataset = right_dataset.to_iterable_dataset(num_shards=64)
+                for left_sample,right_sample,(left_idx, right_idx), label in zip(left_iter_dataset, right_iter_dataset, selected_pairs, selected_labels):
+
+                    yield left_sample, right_sample, label, left_idx, right_idx
+        else:
+            # import pdb; pdb.set_trace()
+            # Implement sharding
+            num_samples = self.pair_index.shape[0]
+            samples_per_worker = num_samples // self.gpu_num
+            # Indices for the current worker
+            start_idx = rank * samples_per_worker
+            end_idx = start_idx + samples_per_worker if rank != self.gpu_num - 1 else num_samples
+            # Slice the dataset for the current worker
+            print(f"rank:{rank} is selecting: from {start_idx} to {end_idx}. total: {num_samples}, samples per worker: {samples_per_worker}")
+            # import pdb; pdb.set_trace()
+            left_idxs = self.pair_index[:,0][start_idx:end_idx]
+            right_idxs = self.pair_index[:,1][start_idx:end_idx]
+
+            left_dataset = self.sample_dataset.select(left_idxs)
+            right_dataset =  self.sample_dataset.select(right_idxs)
+            left_iter_dataset = left_dataset.to_iterable_dataset()
+            right_iter_dataset = right_dataset.to_iterable_dataset()
+
+            #subset the index and labels
+            subset_index = self.pair_index[start_idx:end_idx]
+            subset_labels = self.labels[start_idx:end_idx]
+            for left_sample,right_sample,(left_idx, right_idx), label in zip(left_iter_dataset, right_iter_dataset, subset_index, subset_labels):
+
+                yield left_sample, right_sample, label, left_idx, right_idx
+
+        
+class DynamicHuggingFaceDatasetEval(IterableDataset):
+    def __init__(self, datapath, kfold = False, cur_fold = False, split = False):
+        '''
+        huggingface dataset
+        '''
+        self.datapath  = datapath
+        self.kfold = kfold
+        self.cur_fold = cur_fold
+        self.split = split
+        self.dataset = load_from_disk(datapath)
+
+    def kfold_split(self, dataset):
+        sample_num = len(dataset)  # Use len() for datasets
+
+        kf = KFold(n_splits=self.kfold, shuffle=True, random_state=42)
+        for fold_index, (train_index, test_index) in enumerate(kf.split(range(sample_num))):
+            if self.cur_fold == fold_index:
+                train_dataset = dataset.select(train_index)
+                test_dataset = dataset.select(test_index)
+                print(f"Fold {self.cur_fold}, Train size: {len(train_dataset)}, Test size: {len(test_dataset)}")
+                return train_dataset, test_dataset
+
+        raise ValueError("Current fold index is out of bounds.")
+    def __len__(self):
+
+        return len(self.dataset)
+
+    
+    def __iter__(self):
+
+        try:
+            # Get the total number
+            total_number = len(self.dataset)
+
+            # Shuffle the cells
+            np.random.seed(42)  # For reproducibility
+            shuffled_indices = np.random.permutation(total_number)
+            if self.kfold:
+                train_dataset, test_dataset = self.kfold_split(self.dataset)
+                if self.split == "train":
+                    yield from train_dataset
+                elif self.split == "test":
+                    yield from test_dataset
+            else:
+                #WARNING: if you use the to_iterable_dataset method, you won't get the whole datasets as the right order.
+                dataset_shuffle = self.dataset.select(shuffled_indices)
+                iter_dataset = dataset_shuffle.to_iterable_dataset(num_shards=64)
+                yield from iter_dataset 
+
+        except FileNotFoundError:
+            print(f"{self.datapath} is not a valid dataset")
+
+        
+
+        
 
 
 class GetPairs(Dataset):
@@ -378,6 +612,144 @@ class GetPairs(Dataset):
     
 
 
+def split_dataset(all_pairs, all_labels, n_splits, split_mode = "random", test_size=None,zero_shot_cell_size=None):
+    """
+    test_size: number of test samples we want to cover, default=None.
+    split_mode: random means randomly select the edges using the upper triangle matrix without diagonal values.
+                leave_cell_out randomly select the cells and their edges.
+    zero_shot_cell_size: if you want to test the zero_shot ability, you should define this cell number 
+    """
+    # For the sake of demonstration, we'll create a placeholder array for our pairs
+    np.random.seed(42)
+    # Initialize KFold
+    
+    pair_num = all_pairs.shape[0]
+
+    
+    
+    if n_splits:
+        if split_mode == "random":
+            kf = KFold(n_splits=n_splits, shuffle=False)
+            # Prepare to store the train/test pairs
+            train_test_splits = {}
+            train_test_labels = {}
+            #getting the positive pairs
+            pos_pairs = all_pairs[: int(pair_num/2)]
+            pos_labels = all_labels[: int(pair_num/2)]
+            #get the negative pairs
+            neg_pairs = all_pairs[int(pair_num/2):]
+            neg_labels = all_labels[int(pair_num/2):]
+            for fold, (train_index, test_index) in enumerate(kf.split(pos_pairs)):
+                #getting train and test pairs
+                train_shuffled_indices = np.random.permutation(2*len(train_index)) #for pos and neg shuffle
+                test_shuffled_indices = np.random.permutation(2*len(test_index))
+                # import pdb; pdb.set_trace()
+                pos_train_pairs = pos_pairs[train_index]
+                neg_train_pairs = neg_pairs[train_index]
+
+                pos_test_pairs = pos_pairs[test_index[:test_size]]
+                neg_test_pairs = neg_pairs[test_index[:test_size]]
+                #getting train and test labels
+                pos_train_labels = pos_labels[train_index]
+                neg_train_labels = neg_labels[train_index]
+
+                pos_test_labels = pos_labels[test_index[:test_size]]
+                neg_test_labels = neg_labels[test_index[:test_size]]
+
+                # import pdb; pdb.set_trace()
+                #combine all the pairs and labels
+                train_pairs = np.vstack([pos_train_pairs, neg_train_pairs])
+                train_pairs = train_pairs[train_shuffled_indices]
+                test_pairs = np.vstack([pos_test_pairs, neg_test_pairs])
+                test_pairs = test_pairs[test_shuffled_indices]
+
+
+                train_labels = np.hstack([pos_train_labels, neg_train_labels])
+                train_labels = train_labels[train_shuffled_indices]
+                test_labels = np.hstack([pos_test_labels, neg_test_labels])
+                test_labels = test_labels[test_shuffled_indices]
+
+                train_test_splits[fold] = (train_pairs, test_pairs)
+                train_test_labels[fold] = (train_labels, test_labels)
+
+                # You can also print the shapes or any other information:
+                print(f"Train size: {train_pairs.shape[0]}, Test size: {test_pairs.shape[0]}")
+            return train_test_splits, train_test_labels
+        elif split_mode == "leave_cell_out":
+            #getting all the query cells
+            # import pdb; pdb.set_trace()
+            cell_ids = np.unique(all_pairs[:,0])
+            kf = KFold(n_splits=10, shuffle=False) #to make sure the test cell should be 10%
+            train_test_splits = {}
+            train_test_labels = {}
+            for fold, (train_index, test_index) in enumerate(kf.split(cell_ids)):
+                # import pdb; pdb.set_trace()
+                if fold < n_splits:
+                    train_cell_ids = cell_ids[train_index]
+                    test_cell_ids = cell_ids[test_index]
+                    # import pdb; pdb.set_trace()
+                    #getting the test pairs 
+                    test_pairs = all_pairs[np.isin(all_pairs[:,0], test_cell_ids)]
+                    test_labels = all_labels[np.isin(all_pairs[:,0], test_cell_ids)]
+                    # import pdb; pdb.set_trace()
+                    #getting the train pairs and exclude the edges that link to the test nodes
+                    #only filter the test cell_id in the pos pairs
+
+                    #first filter out the query cells belong to the test cell ids
+                    train_pairs = all_pairs[~np.isin(all_pairs[:,0], test_cell_ids)] #getting the potential positive pairs
+                    train_labels = all_labels[~np.isin(all_pairs[:,0], test_cell_ids)]
+                    #filter out the key cells that belong to the test cell ids, only filter by the positive pairs - the 1/2 cells
+                    mid_point = len(train_pairs) // 2 #split to two half avoid data imbalance of pos and neg after filtering
+                    train_pos_pairs = train_pairs[:mid_point, :]
+                    train_neg_pairs = train_pairs[mid_point:, :]
+                    pos_mask = ~np.isin(train_pos_pairs[:,1], test_cell_ids) #the pos key should not in test
+                    neg_mask = ~np.isin(train_neg_pairs[:,1], test_cell_ids) #the neg key should not in test
+                    half_mask = pos_mask & neg_mask
+                    full_mask = np.hstack([half_mask, half_mask])
+                    # import pdb; pdb.set_trace()
+                    # kept_mask = ~np.isin(train_pairs[:,1], test_cell_ids)
+                    # import pdb; pdb.set_trace()
+                    train_pairs = train_pairs[full_mask]
+                    train_labels = train_labels[full_mask]
+                    assert not np.isin(train_pairs.flatten(), test_cell_ids).any(), "ERROR: The test cell ids should not in the training cell ids"
+                    #shuffle the pairs and labels
+                    train_shuffled_indices = np.random.permutation(len(train_pairs))
+                    test_shuffled_indices = np.random.permutation(len(test_pairs))
+                    # import pdb; pdb.set_trace()
+                    train_pairs = train_pairs[train_shuffled_indices]
+                    train_labels = train_labels[train_shuffled_indices]
+                    test_pairs = test_pairs[test_shuffled_indices]
+                    test_labels = test_labels[test_shuffled_indices]
+
+
+                    # import pdb; pdb.set_trace()
+                    train_test_splits[fold] = (train_pairs, test_pairs)
+                    train_test_labels[fold] = (train_labels, test_labels)
+                else:
+                    break
+                print(f"Train cell number: {train_cell_ids.shape[0]}, Test cell number: {test_cell_ids.shape[0]}")
+                print(f"Train size: {train_pairs.shape[0]}, Test size: {test_pairs.shape[0]}")
+            return train_test_splits, train_test_labels
+                
+    else:
+        # import pdb; pdb.set_trace()
+        
+        
+        if zero_shot_cell_size != -1:
+            #getting the test dataset based on the cell_ids
+            cell_ids = np.unique(all_pairs[:,0])
+            selected_cell_ids = np.random.choice(cell_ids, size = zero_shot_cell_size, replace=False)
+
+            selected_pairs = all_pairs[np.isin(all_pairs[:,0], selected_cell_ids)] #select positive and negative pairs according to cells
+            selected_labels = all_labels[np.isin(all_pairs[:,0], selected_cell_ids)]
+
+            #shuffling the data
+            train_shuffled_indices = np.random.permutation(len(selected_pairs))
+            selected_pairs = selected_pairs[train_shuffled_indices]
+            selected_labels = selected_labels[train_shuffled_indices]
+            return selected_pairs, selected_labels
+        else:
+            return all_pairs, all_labels
 
 
 
@@ -573,6 +945,39 @@ def unique_list_mapping_to_one_hot(unique_list: List, target_list: List)-> np.ar
     return np.array(one_hot_encodings)
 
 
+class Lora:
+    def __init__(self, lora_config = None):
+        self.lora_config = lora_config
+
+    def wrapper(self, model = None):
+
+        lora_config = LoraConfig(
+                r=self.lora_config["r"], # Rank
+                lora_alpha=self.lora_config["lora_alpha"],
+                target_modules=self.lora_config["target_modules"],
+                modules_to_save=self.lora_config["modules_to_save"],
+                lora_dropout=0.05,
+                bias="none"
+            )
+
+        peft_model = get_peft_model(model, lora_config)
+
+        return peft_model
+    @staticmethod
+    def print_number_of_trainable_model_parameters(model):
+        trainable_model_params = 0
+        all_model_params = 0
+        import pdb; pdb.set_trace()
+        for _, param in model.named_parameters():
+            all_model_params += param.numel()
+            if param.requires_grad:
+                trainable_model_params += param.numel()
+        import pdb; pdb.set_trace()
+        print(f"trainable model parameters: {trainable_model_params}\nall model parameters: {all_model_params}\npercentage of trainable model parameters: {100 * trainable_model_params / all_model_params:.2f}%")
+
+
+
+
 def find_subcellular_domains(cell_data: pd.DataFrame,
                              transcript_data: pd.DataFrame) -> pd.DataFrame:
     """\
@@ -744,6 +1149,14 @@ def binary_to_coo_matrix(binary_matrix : np.array):
 
     return sparse_matrix
 
+def extract_coo_components(example):
+    """Extract COO components from example dictionary"""
+    adj_mtx = np.array(example["Gene_Gene_Matrix"])
+    row, col = np.nonzero(adj_mtx)
+    data = adj_mtx[row, col]
+    shape = adj_mtx.shape
+    return {"row": row, "col": col, "data": data, "shape": shape}
+
 def coo_to_binary_matrix(group_shape, data, row, col):
     # Create an empty binary matrix with the same shape as the sparse matrix
     binary_matrix = np.zeros(group_shape, dtype=int)
@@ -866,6 +1279,7 @@ def binning(
     return torch.from_numpy(binned_row) if not return_np else binned_row.astype(dtype)
 
 
+
 def complete_masking(batch, p, n_tokens, cls_token, mask_token, sep_token, pad_token):
     '''
     This is used to mask the tokens for the mask language model head.
@@ -874,34 +1288,28 @@ def complete_masking(batch, p, n_tokens, cls_token, mask_token, sep_token, pad_t
     # cls_token = 1
     # mask_token = 2
     
-
+    nomasked_token = 999
     indices = batch['indices']
-    # import pdb; pdb.set_trace()
-    # indices = torch.where(indices == 0, torch.tensor(padding_token), indices) # 0 is originally the padding token, we change it to 1
-    # batch['indices'] = indices
 
-    mask = 1 - torch.bernoulli(torch.ones_like(indices), p) # mask indices with probability p, represent mask as 0 (15%), 85% as 1, without padding tokens
+    mask = 1 - torch.bernoulli(torch.ones_like(indices), p) # mask indices with probability p, represent mask as 0 (15%), 85% as 1
     
-    # mask = torch.where(mask == 1, mask_token, mask)
     
     masked_indices = indices * mask # masked_indices, mute masked sites
     #embedding the mask token
     masked_indices = torch.where(masked_indices == 0, mask_token, masked_indices)
 
     masked_indices = torch.where(indices != pad_token, masked_indices, indices) # we just mask non-padding indices
-    mask = torch.where(indices == pad_token, torch.tensor(pad_token), mask) # the mask sequence with the padding tokens
-    # so we make the mask of all PAD tokens to be 1 so that it's not taken into account in the loss computation
-    # import pdb; pdb.set_trace()
+    mask = torch.where(indices == pad_token, nomasked_token, mask) # the mask sequence with the padding tokens
+    # so we make the mask of all PAD tokens to be 0 so that it's not taken into account in the loss computation
+
     # Notice for the following 2 lines that masked_indices has already not a single padding token masked
     masked_indices = torch.where(indices != cls_token, masked_indices, indices) # same with CLS, no CLS token can be masked
-    mask = torch.where(indices == cls_token, torch.tensor(pad_token), mask) # we change the mask so that it doesn't mask any CLS token
+    mask = torch.where(indices == cls_token, nomasked_token, mask) # we change the mask so that it doesn't mask any CLS token
     masked_indices = torch.where(indices != sep_token, masked_indices, indices) # same with SEP, no SEP token can be masked
-    mask = torch.where(indices == sep_token, torch.tensor(pad_token), mask) # we change the mask so that it doesn't mask any SEP token
-
+    mask = torch.where(indices == sep_token, nomasked_token, mask) # we change the mask so that it doesn't mask any SEP token
+    # import pdb; pdb.set_trace()
     #setting the 0 to the mask tokens
     mask = torch.where(mask == 0, mask_token, mask)
-
-    mask = torch.where(indices == pad_token, torch.tensor(pad_token), mask)
 
     # 80% of masked indices are masked
     # 10% of masked indices are a random token
@@ -1000,7 +1408,6 @@ def categorical_2d_masking(batch, p = 0.5):
     batch['mask_2d'] = mask
 
     return batch
-
 
 
 
@@ -1133,5 +1540,69 @@ def filter_df(pair_df):
     
     # Optionally, reset the index if you want a cleaner DataFrame
     return ranked_df
+
+
+
+def filter_state_dict_by_shape(src_sd, tgt_model):
+    tgt_sd = tgt_model.state_dict()
+    new_sd = OrderedDict()
+
+    loaded, skipped = [], []
+
+    for k, v in src_sd.items():
+        if k in tgt_sd and tgt_sd[k].shape == v.shape:
+            new_sd[k] = v
+            loaded.append(k)
+        else:
+            skipped.append(k)
+
+    return new_sd, loaded, skipped
+
+def load_original_into_flash(
+    flash_model,
+    original_ckpt_path,
+    device="cpu",
+    strict=False,
+):
+    ckpt = torch.load(original_ckpt_path, map_location=device)
+    src_sd = ckpt.get("state_dict", ckpt)
+
+    # 1️⃣ Remove known incompatible modules explicitly
+    blacklist_prefixes = (
+        "encoder.emb_proj",
+        "encoder.bpp_feature_proj",
+        "encoder.bpp_convnet",
+        "classifier_head",        # different output dim
+        "embeddings",             # vocab size mismatch
+        "spatialembeds.emb",      # vocab size mismatch
+        "adjprojector",           # architecture changed
+    )
+
+    filtered_src = {
+        k: v for k, v in src_sd.items()
+        if not k.startswith(blacklist_prefixes)
+    }
+
+    # 2️⃣ Match by key + shape
+    matched_sd, loaded, skipped = filter_state_dict_by_shape(
+        filtered_src, flash_model
+    )
+
+    # 3️⃣ Load
+    flash_model.load_state_dict(matched_sd, strict=False)
+
+    print(f"✅ Loaded {len(loaded)} tensors")
+    print(f"⚠️ Skipped {len(skipped)} tensors")
+
+    if strict:
+        print("\nSkipped keys:")
+        for k in skipped:
+            print("  ", k)
+
+    return flash_model
+
+def load_partial_embeddings(src_emb, tgt_emb):
+    n = min(src_emb.weight.shape[0], tgt_emb.weight.shape[0])
+    tgt_emb.weight.data[:n].copy_(src_emb.weight.data[:n])
 
 

@@ -197,7 +197,7 @@ SpatialFormer provides a simple function to extract embeddings. By using the `sp
 
 SpatialFormer supports two methods for generating embeddings: 1) single input mode and 2) pairwise input mode. Below is an example of generating the AnnData embeddings:
 
-A simple example anndata can be downloaded [here](downstream/cell_cell_communication/data/covid_subsampled.h5ad)
+
 
 The checkpoints can be downloaded according to different use cases as below:
 
@@ -205,10 +205,10 @@ The checkpoints can be downloaded according to different use cases as below:
 | :------------------------   | :--------- | :--------- | :--------- | 
 | Paired | lung | 1 | [ckp_pair_lung_1](https://figshare.com/articles/dataset/VUILD102LF_checkpoint/28452137?file=52503359) |
 | Paired | 13 types | 61 | [ckp_pair_13tissues_61](https://figshare.com/articles/dataset/61slides_checkpoints/28452167?file=52503416) |
-| Paired | 13 types | 71 | [ckp_pair_13tissues_71](https://figshare.com/articles/dataset/pair_input_checkpoint_5k/31146247?file=61331557) |
+| <span style="color: red;">Paired</span>  | 13 types | 71 | [ckp_pair_13tissues_71](https://figshare.com/articles/dataset/pair_input_checkpoint_5k/31146247?file=61331557) |
 | Paired | lung | 25 | [ckp_pair_lung_25](https://figshare.com/articles/dataset/lung_paired_checkpoint/28452233?file=52504040) |
 | Single | 13 types| 62 | [ckp_single_13tissues_62](https://figshare.com/articles/dataset/single_input/28452209?file=52503695) |
-| Single | 13 types| 71 | [ckp_single_13tissues_71](https://figshare.com/articles/dataset/single_input_checkpoint_5k/31146238?file=61331527) |
+| <span style="color: red;">Single</span> | 13 types| 71 | [ckp_single_13tissues_71](https://figshare.com/articles/dataset/single_input_checkpoint_5k/31146238?file=61331527) |
 
 The LoRA fine-tuned checkpoints can be downloaded as below:
 | Input type | Tissue types | Size (number of slides) | Cell Number | Links |
@@ -228,9 +228,11 @@ We support diversed input format for extracting the cell embeddings. The input c
 
 For the easiest implementation, ".h5ad" file can easily input and get the embedding out following the codes as below:
 
+We also provide [Google Colab](https://colab.research.google.com/drive/130ooVmvoQU1QahT9_Ljz273BdlC8n2Pk?usp=sharing) for practical purpose.
+
 
 #### Loading the anndata
-
+A simple example anndata can be downloaded [here](downstream/cell_cell_communication/data/covid_subsampled.h5ad)
 ```python
 import scanpy as sc
 adata = sc.read_h5ad("./downstream/cell_cell_communication/data/covid_subsampled.h5ad")
@@ -245,39 +247,44 @@ import spatialformer as sp
 method = "cls"
 tissue = "Lung"
 condition = "Disease"
-model_ckp_path = "./singleinput.ckpt"
-batch_size = 4
-embed_adata = sp.tl.embed_data(adata, 
-                              tissue,
-                              condition,
-                               method,
-                            model_ckp_path, 
-                            batch_size,
+assay = "Xenium"
+model_ckp_path = "./ckp_single_13tissues_71.ckpt" # "ckp_single_13tissues_71" is recommended
+use_flash_attn = True # Depends on whether you install the FlashAttention, if installed -> "True", "False" instead.
+batch_size = 16
+embed_adata = sp.tl.embed_data(
+                            adata = adata, 
+                            tissue = tissue,
+                            condition = condition,
+                            assay = assay,
+                            method = method,
+                            model_ckp_path = model_ckp_path, 
+                            batch_size = batch_size,
                             mode = "single",
-                            threshold = 0.7,
-                            num_workers = 8
+                            use_flash_attn = use_flash_attn,
+                            num_workers = 32
                             )
 ```
 #### Pairwise Input Mode
 ```python
+import spatialformer as sp
 method = "cls"
 tissue = "Lung"
 condition = "Disease"
-model_ckp_path = "./61slides.ckpt" #set your own path
-batch_size = 4
-embed_adata = sp.tl.embed_data(adata, 
-                              tissue,
-                              condition,
-                               method,
-                            model_ckp_path, 
-                            batch_size,
+assay = "Xenium"
+model_ckp_path = "./ckp_pair_13tissues_71.ckpt" #"ckp_pair_13tissues_71" is recommended
+batch_size = 16
+embed_adata = sp.tl.embed_data(
+                            adata = adata, 
+                            tissue = tissue,
+                            condition = condition,
+                            assay = assay,
+                            method = method,
+                            model_ckp_path = model_ckp_path, 
+                            batch_size = batch_size,
                             mode = "pair",
                             left_cell = ["20532-0-1-0-1", "222101-0-0-1"],
                             right_cell = ["483188-0-0-1", "513429-0-0-1"],
-                            num_workers = 8,
-                            gene_median_path = "/scratch/project_465001820/Spatialformer/data/gene_median.pkl",
-                            resume_before_5k = False,
-                            max_len=300
+                            num_workers = 16
                             )
 ```
 
@@ -285,18 +292,19 @@ embed_adata = sp.tl.embed_data(adata,
 | Arguments         | dtype |Description |
 | :------------------------   | :--------- | :--------- | 
 | adata | object  | An AnnData object that stores expression information by CellXGene.|
-|  tissue | string | The type of tissue (e.g., Breast/Lung).|
+| tissue | string | The type of tissue (e.g., Breast/Lung).|
 | condition | string | Metadata for the sample condition (e.g., Disease/Healthy). |
-| method | string | The method of the embed function, which can be either "single" or "pair." The single mode collates only individual cells as input for the model. In "pair" mode, data is prepared for pairwise input. If using "pair," both left_cell and right_cell must be provided, and their lengths must be the same. Each cell ID in left_cell corresponds to the cell ID at the same index in right_cell.  |
+| assay | string | The method of getting the data (e.g. Merfish, Xenium). |
+| method | Embedding extraction method. "cls": Use CLS token embedding as cell representation; "gene": Use the mean of gene token embeddings. |
+| mode | string | The method of the embed function, which can be either "single" or "pair." The single mode collates only individual cells as input for the model. In "pair" mode, data is prepared for pairwise input. If using "pair," both left_cell and right_cell must be provided. Each cell ID in left_cell corresponds to the cell ID at the same index in right_cell.  |
 | model_ckp_path | string | The path to the SpatialFormer model checkpoint.|
 | batch_size | integer | The batch size for the data loader.|
 | threshold | float | The threshold for filtering whether two genes are paired, which helps in identifying confidently paired genes at subcellular resolution. This option is applicable only in "single" input mode and is not functional in "pair" mode.|
 | left_cell | array_like | A list of cell IDs representing the query cells.|
 | right_cell | array_like | A list of cell IDs representing the key cells. |
 | num_workers | integer | The number of CPU cores to load the data. This value should match the number of workers specified in the data loader.|
-| gene_median_path | string | Path to a file containing the technical median values for each gene used during pretraining. |
 | resume_before_5k | bool | Indicates whether to resume from a checkpoint trained on the small panel. Set to True to use the small-panel checkpoint; set to False to use the checkpoint trained with the 5k Xenium panel. |
-| max_len | integer | Maximum length of each sequence considered. Default is None, meaning all genes are used. For large numbers of pairwise sequences, we strongly recommend setting this to 500 per sequence to significantly improve runtime performance. |
+| max_len | integer | Maximum length of each sequence considered. Default is None, meaning all genes are used. For large numbers of pairwise sequences, we strongly recommend setting this to 500 per sequence to significantly improve runtime performance if FlashAttention is not installed. |
 
 
 If the input data is a huggingface dataset, we have built a huggingface specified dataloader only for inference step:
@@ -368,6 +376,8 @@ python ./script/train.py --config /scratch/project_465001820/Spatialformer/confi
 
 For each slide, the accurate prediction of the molecular features largely rely on the cell-cell colocalization. 
 We use LoRA to fine-tune the SpatialFormer model with one slide.
+
+We also provide [Google Colab](), which makes it easy to practice.
 
 ```python
 python cell_cell_communication_zero_shot_multi_platform.py --radius 30 --fine_tune_mode lora --rank 64 --lora_alpha 128 --cell_by_gene_path /scratch/project_465001820/Spatialformer_main_practice/data/MERFISH_Lung/HumanLungCancerPatient1_cell_by_gene.csv --cell_meta_path /scratch/project_465001820/Spatialformer_main_practice/data/MERFISH_Lung/HumanLungCancerPatient1_cell_metadata.csv --sample_name MERFISH_Lung --zero_shot_cell_size 500 --tissue Lung --condition Disease --config_path /scratch/project_465001820/Spatialformer/spatialformer/config/_config_fine_tune_probe.json --batch_size 32 --max_cells 10000

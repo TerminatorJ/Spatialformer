@@ -9,12 +9,20 @@ from pathlib import Path
 current_file_path = Path(__file__).resolve()
 p_path = current_file_path.parents[0]
 sys.path.append(p_path)
-
 from layer_modules import DropPath, ScaleBiasLayer
 from masked_batchnorm import MaskedBatchNorm1d
 from masked_conv import MaskedConv1d
-from flash_attn import flash_attn_func, flash_attn_varlen_func
-from flash_attn.bert_padding import pad_input, unpad_input
+import logging
+# Try to import flash attention components at module load time
+try:
+    from flash_attn import flash_attn_func, flash_attn_varlen_func
+    _FLASH_ATTN_AVAILABLE = True
+    logging.info("FlashAttention is ready")
+except ImportError:
+    _FLASH_ATTN_AVAILABLE = False
+    logging.info("Run without flashattention")
+    
+
 
 def get_act_fn(activation):
     if activation == 'swish':
@@ -285,6 +293,7 @@ class AltBlock(nn.Module):
         if not flash_attn:
             self.self_attn = AltAttention(dim=dim,num_heads=num_heads,dropout=attn_dropout)
         else:
+            
             self.self_attn = FlashAttentionV2ALiBiWithMask(dim=dim,num_heads=num_heads,dropout=attn_dropout)
 
         self.drop1 = DropPath(drop_path)

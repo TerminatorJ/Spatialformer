@@ -2,15 +2,13 @@
 #author: Jun
 #31/10/2024
 #deprecate
-
 from datasets import load_from_disk, concatenate_datasets
 from tqdm import tqdm
 import numpy as np
 import h5py
 import os
 import sys
-sys.path.append("/scratch/project_465001027/Spatialformer/utils")
-from utils import *
+from spatialformer.utils import *
 import pickle
 from torch.utils.data import Dataset, DataLoader, ConcatDataset
 import torch

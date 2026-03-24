@@ -1,5 +1,5 @@
 """
-utils.py for focus
+utils.py for spatialformer
 """
 import os
 import pandas as pd 

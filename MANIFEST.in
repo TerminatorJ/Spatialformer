@@ -2,6 +2,8 @@ include spatialformer/config/*.json
 
 include spatialformer/tokenizer/*.json
 
-include spatialformer/spatial_embeddings/*.json
-
 include requirements.txt
+
+include spatialformer/data/gene_median.pkl
+
+include spatialformer/spatial_embeddings/*.pkl

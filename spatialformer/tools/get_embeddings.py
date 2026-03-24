@@ -390,7 +390,7 @@ def embed_data(
     # -------------------------------------------------------------------------
     with open(config_path, 'r') as json_file:
         config = json.load(json_file)
-    pkg_root = os.path.dirname(os.path.dirname(pkg_file))  # /path/to/spatialformer/
+    pkg_root = os.path.dirname(pkg_file)  # /path/to/spatialformer/
     config["embedding_path"] = os.path.join(pkg_root, "spatial_embeddings/xenium_5k_pandavid_gene_embeddings.pkl")
     logger.info("Redirected the GraphSAGE embedding_path...")
     

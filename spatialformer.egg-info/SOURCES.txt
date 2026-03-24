@@ -21,6 +21,7 @@ spatialformer/config/_config_graphsave.json
 spatialformer/config/_config_train.json
 spatialformer/config/_config_train_large_pair.json
 spatialformer/config/_config_train_large_single.json
+spatialformer/data/gene_median.pkl
 spatialformer/dataloader/__init__.py
 spatialformer/dataloader/dataloader_paired.py
 spatialformer/gene_gene_calculation/__init__.py

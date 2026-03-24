@@ -57,6 +57,9 @@ downstream/Coordinate_perturbation/data/*
 
 #all pickled files
 *.pkl
+# But do not ignore these specific ones
+!/spatialformer/spatial_embeddings/xenium_5k_pandavid_gene_embeddings.pkl
+!/spatialformer/data/gene_median.pkl
 
 #download intermediate files
 /data_preprocessing/*.err

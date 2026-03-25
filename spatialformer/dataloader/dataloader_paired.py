@@ -33,7 +33,9 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 disable_caching()
 
 # Load tokenizer
-with open(f'{pkg_file}/tokenizer/tokenv5.json', 'r') as f:
+pkg_root = os.path.dirname(pkg_file)
+
+with open(f'{pkg_root}/tokenizer/tokenv5.json', 'r') as f:
     token_dict = json.load(f)
 
 

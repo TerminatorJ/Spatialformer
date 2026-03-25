@@ -34,7 +34,6 @@ disable_caching()
 
 # Load tokenizer
 pkg_root = os.path.dirname(pkg_file)
-
 with open(f'{pkg_root}/tokenizer/tokenv5.json', 'r') as f:
     token_dict = json.load(f)
 

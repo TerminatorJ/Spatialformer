@@ -25,18 +25,15 @@ from multiprocessing import get_context
 from functools import partial
 import random
 import sys
-sys.path.append("/scratch/project_465001820/Spatialformer/utils")
 from utils import *
-sys.path.append("/scratch/project_465001820/Spatialformer/train")
 from data_loader import create_dataloader
+from spatialformer import __file__ as pkg_file
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-
 # Disable caching to prevent Arrow conflicts
 disable_caching()
 
-
 # Load tokenizer
-with open('/home/sxr280/Spatialformer/tokenizer/tokenv5.json', 'r') as f:
+with open(f'{pkg_file}/tokenizer/tokenv5.json', 'r') as f:
     token_dict = json.load(f)
 
 

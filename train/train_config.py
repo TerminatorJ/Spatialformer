@@ -19,11 +19,11 @@ from typing import Dict, Any
 import sys
 import pandas as pd
 import sys
-sys.path.append("/home/sxr280/Spatialformer/spatialformer")
-from utils import *
-from model import Spaformer
-from dataloader import PairwiseSpatialDataModule
+from spatialformer.utils import *
+from spatialformer.model import Spaformer
+from spatialformer.dataloader import PairwiseSpatialDataModule
 import pwd
+
 #setting the wandb environment
 os.environ["WANDB_CACHE_DIR"] = "/scratch/project_465001820/Spatialformer/cache"
 os.environ["WANDB_DIR"] = "/scratch/project_465001820/Spatialformer/cache"
@@ -31,9 +31,10 @@ os.environ["WANDB_CONFIG_DIR"] = "/scratch/project_465001820/Spatialformer/cache
 os.environ["WANDB_CACHE_DIR"] = "/scratch/project_465001820/Spatialformer/cache"
 os.environ['HOME'] = pwd.getpwuid(os.getuid()).pw_dir
 hf_cache = "/scratch/project_465001820/Spatialformer/cache"
+os.environ["HF_HOME"] = hf_cache
 cpus_per_task = int(os.environ.get('SLURM_CPUS_PER_TASK', 1))
 print(f"The number of cpu for each task: {cpus_per_task}")
-os.environ["HF_HOME"] = hf_cache
+
 if torch.cuda.is_available():
     os.environ["flash_attn_2_cuda"] = "True"
 else:

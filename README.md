@@ -68,7 +68,7 @@ We provide the GPU and CPU version for users with different device levels. Howev
 #### OS requirements
 This package is supported for macOS and Linux. The package has been tested on the following systems:
 - macOS: Sequoia (15.3.1)
-- Linux: Ubuntu 16.04; SLES 15.5
+- Linux: Ubuntu 16.04; SUSE 15.6
 
 #### Python environment requirements
 Create the spatialformer environment by anaconda (python >= 3.10 required)
@@ -228,8 +228,8 @@ We support diversed input format for extracting the cell embeddings. The input c
 
 For the easiest implementation, ".h5ad" file can easily input and get the embedding out following the codes as below:
 
-We also provide [Google Colab](https://colab.research.google.com/drive/130ooVmvoQU1QahT9_Ljz273BdlC8n2Pk?usp=sharing) for practical purpose.
-
+We also provide Google Colab for practical purposes.
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/130ooVmvoQU1QahT9_Ljz273BdlC8n2Pk?usp=sharing)
 
 #### Loading the anndata
 A simple example anndata can be downloaded [here](downstream/cell_cell_communication/data/covid_subsampled.h5ad)
@@ -377,7 +377,8 @@ python ./script/train.py --config /scratch/project_465001820/Spatialformer/confi
 For each slide, the accurate prediction of the molecular features largely rely on the cell-cell colocalization. 
 We use LoRA to fine-tune the SpatialFormer model with one slide.
 
-We also provide [Google Colab](https://colab.research.google.com/drive/18RQhZeak47t3BzmLZ-St3NOmrQnCuwXk?usp=sharing), which makes it easy to practice.
+We also provide Google Colab for practice purposes
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/18RQhZeak47t3BzmLZ-St3NOmrQnCuwXk?usp=sharing)
 
 ```python
 python cell_cell_communication_zero_shot_multi_platform.py --radius 30 --fine_tune_mode lora --rank 64 --lora_alpha 128 --cell_by_gene_path /scratch/project_465001820/Spatialformer_main_practice/data/MERFISH_Lung/HumanLungCancerPatient1_cell_by_gene.csv --cell_meta_path /scratch/project_465001820/Spatialformer_main_practice/data/MERFISH_Lung/HumanLungCancerPatient1_cell_metadata.csv --sample_name MERFISH_Lung --zero_shot_cell_size 500 --tissue Lung --condition Disease --config_path /scratch/project_465001820/Spatialformer/spatialformer/config/_config_fine_tune_probe.json --batch_size 32 --max_cells 10000

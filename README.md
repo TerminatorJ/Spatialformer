@@ -387,7 +387,7 @@ python cell_cell_communication_zero_shot_multi_platform.py --radius 30 --fine_tu
 ### Reproducibility of the work
 
 All the codes for reproducing the results of the manuscript were presented in the ./downstream directory.
-For reproducing the MERFISH and Xenium colocalization prediction, [colocalization prediction](downstream/zero-shot_batch_correction/cell_cell_communication_zero_shot_multi_platform.py)
+
 
 
 ### Star Trend

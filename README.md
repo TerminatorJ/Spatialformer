@@ -295,7 +295,7 @@ embed_adata = sp.tl.embed_data(
 | tissue | string | The type of tissue (e.g., Breast/Lung).|
 | condition | string | Metadata for the sample condition (e.g., Disease/Healthy). |
 | assay | string | The method of getting the data (e.g. Merfish, Xenium). |
-| method | Embedding extraction method. "cls": Use CLS token embedding as cell representation; "gene": Use the mean of gene token embeddings. |
+| method | string | Embedding extraction method. "cls": Use CLS token embedding as cell representation; "gene": Use the mean of gene token embeddings. |
 | mode | string | The method of the embed function, which can be either "single" or "pair." The single mode collates only individual cells as input for the model. In "pair" mode, data is prepared for pairwise input. If using "pair," both left_cell and right_cell must be provided. Each cell ID in left_cell corresponds to the cell ID at the same index in right_cell.  |
 | model_ckp_path | string | The path to the SpatialFormer model checkpoint.|
 | batch_size | integer | The batch size for the data loader.|

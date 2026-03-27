@@ -1,7 +1,7 @@
 ---
 
 <p align="center">
-  <img src="images/spatialformer_logo.png" alt="Logo" width="200"/>
+  <img src="./images/spatialformer_logo.png" alt="Logo" width="200"/>
 </p>
 
 This is the official SpatialFormer codebase. SpatialFormer is the first single-cell spatial foundation model that learns universal representations of subcellular molecular and cellular spatial proximity through multi-task learning.

@@ -1,5 +1,11 @@
 ---
 
+<div align="center" style="background-color:#f0f0f0; padding: 20px; border-radius: 10px;">
+  <img src="images/spatialformer_logo.png" alt="Spatialformer" width="150"/>
+  <h1 style="margin:0;">Spatialformer</h1>
+  <p style="margin:0;">Scalable spatial transcriptomics analysis with transformers</p>
+</div>
+
 This is the official SpatialFormer codebase. SpatialFormer is the first single-cell spatial foundation model that learns universal representations of subcellular molecular and cellular spatial proximity through multi-task learning.
 
 [![License](https://img.shields.io/badge/license-MIT-blue)](https://github.com/username/repo/blob/main/LICENSE)
@@ -96,6 +102,7 @@ pip install torch==2.3.1 torchvision==0.18.1 torchaudio==2.3.1 --index-url https
 
 #### macOS
 ```bash
+conda install -c conda-forge numba llvmlite
 pip install torch torchvision torchaudio
 ```
 Note: On Mac, only CPUs are currently supported.

@@ -10,7 +10,7 @@ from Spaformer_ft import FTNetwork
 import pytorch_lightning as pl
 from pytorch_lightning.loggers import WandbLogger
 import wandb
-from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping, LearningRateMonitor
+from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping, LearningRateMonitor, Callback
 import pandas as pd
 import argparse
 import pickle
@@ -272,7 +272,7 @@ class FineTune:
             return True
         except ImportError:
             return False
-            
+
     def make_callback(self):
         # Callbacks
         callbacks = [

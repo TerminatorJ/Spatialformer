@@ -233,7 +233,7 @@ We support diversed input format for extracting the cell embeddings. The input c
 
 For the easiest implementation, ".h5ad" file can easily input and get the embedding out following the codes as below:
 
-We also provide Google Colab for practical purposes.
+We also provide Google Colab for practical purposes (stable and strongly recommended).
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/130ooVmvoQU1QahT9_Ljz273BdlC8n2Pk?usp=sharing)
 
 #### Loading the anndata
@@ -382,7 +382,7 @@ python ./script/train.py --config /scratch/project_465001820/Spatialformer/confi
 For each slide, the accurate prediction of the molecular features largely rely on the cell-cell colocalization. 
 We use LoRA to fine-tune the SpatialFormer model with one slide.
 
-We also provide Google Colab for practice purposes
+We also provide Google Colab for practice purposes (stable and strongly recommended)
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/18RQhZeak47t3BzmLZ-St3NOmrQnCuwXk?usp=sharing)
 
 ```python

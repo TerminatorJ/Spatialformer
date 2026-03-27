@@ -1,10 +1,8 @@
 ---
 
-<div align="center" style="background-color:#f0f0f0; padding: 20px; border-radius: 10px;">
-  <img src="images/spatialformer_logo.png" alt="Spatialformer" width="150"/>
-  <h1 style="margin:0;">Spatialformer</h1>
-  <p style="margin:0;">Scalable spatial transcriptomics analysis with transformers</p>
-</div>
+<p align="center">
+  <img src="images/spatialformer_logo.png" alt="Logo" width="200"/>
+</p>
 
 This is the official SpatialFormer codebase. SpatialFormer is the first single-cell spatial foundation model that learns universal representations of subcellular molecular and cellular spatial proximity through multi-task learning.
 

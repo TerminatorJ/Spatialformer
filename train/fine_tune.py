@@ -153,7 +153,22 @@ def data_prepare(sample_name, kfold, num_workers, batch_size, radius=30, test_si
         # import pdb; pdb.set_trace()
         # import pdb; pdb.set_trace()
         return test_dataloader
+class BestLossPrinter(Callback):
+    """Prints the best loss achieved during training."""
+    def __init__(self, monitor='train_total_loss'):
+        self.monitor = monitor
+        self.best_loss = float('inf')
 
+    def on_validation_end(self, trainer, pl_module):
+        # For each validation step, check the current loss
+        current_loss = trainer.callback_metrics.get(self.monitor)
+        if current_loss is not None and current_loss < self.best_loss:
+            self.best_loss = current_loss.item()
+
+    def on_train_end(self, trainer, pl_module):
+        # At the end of training, print the best loss
+        if self.best_loss != float('inf'):
+            print(f"\n🏆 Best {self.monitor}: {self.best_loss:.6f}")
 class FineTune:
     """
     A class for fine-tuning the Spatialformer model on cell-cell communication tasks.
@@ -222,9 +237,15 @@ class FineTune:
         self.rank = rank
         self.lora_alpha = lora_alpha
         
-        # Setup output directory for checkpoints and logs
-        self.output_dir = "/scratch/project_465001820/Spatialformer/output/fine_tune"
+        if self._is_colab():
+            # Colab default path
+            self.output_dir = "/content/checkpoints"
+            print("Running in Colab – using output_dir:", self.output_dir)
+        else:
+            # Original cluster path (Linux)
+            self.output_dir = "/scratch/project_465001820/Spatialformer/output/fine_tune"
         os.makedirs(self.output_dir, exist_ok=True)
+
         
         # Load model based on checkpoint type
         if "lora" not in config["resume_from_local_checkpoint"]:
@@ -244,6 +265,14 @@ class FineTune:
         print(f"The number of GPUS: {self.gpus}")
         self.trainer = None  # Trainer initialized lazily via set_trainer()
 
+    # ---- Helper to detect Colab ----
+    def _is_colab(self):
+        try:
+            import google.colab
+            return True
+        except ImportError:
+            return False
+            
     def make_callback(self):
         # Callbacks
         callbacks = [

@@ -339,7 +339,7 @@ class FineTune:
     def load_pretrained_lm_weights(self, config):
         base_model = manual_train_fm(config=config)
         ckp_path = config["resume_from_local_checkpoint"]
-        ckp = torch.load(ckp_path, map_location=device)
+        ckp = torch.load(ckp_path, map_location=device, weights_only=False)
         params = ckp["state_dict"]
         base_model.load_state_dict(params)
         # base_model.eval()

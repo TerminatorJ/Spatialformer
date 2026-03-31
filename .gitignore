@@ -60,6 +60,9 @@ downstream/Coordinate_perturbation/data/*
 # But do not ignore these specific ones
 !/spatialformer/spatial_embeddings/xenium_5k_pandavid_gene_embeddings.pkl
 !/spatialformer/data/gene_median.pkl
+!/downstream/cell_cell_communication/data/all_infos_alllung_crop_id_Mac_T.pkl
+!/downstream/cell_cell_communication/data/CellNEST_database.csv
+!/downstream/cell_cell_communication/data/ligand_receptor_database.csv
 
 #download intermediate files
 /data_preprocessing/*.err

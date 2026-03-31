@@ -2,7 +2,7 @@ import os
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
 from pytorch_lightning.callbacks.lr_monitor import LearningRateMonitor
-from .utils import *
+from spatialformer.utils import *
 import pytorch_lightning as pl
 import torch
 from pytorch_lightning.loggers import WandbLogger
@@ -15,8 +15,8 @@ import numpy as np
 import logging
 from datasets import load_from_disk
 from datasets import load_dataset
-from .model import Spaformer
-from .data_loader import create_dataloader
+from spatialformer.model import Spaformer
+from spatialformer.data_loader import create_dataloader
 os.environ["WANDB_CACHE_DIR"] = "/scratch/project_465001027/Spatialformer/cache"
 os.environ["WANDB_DIR"] = "/scratch/project_465001027/Spatialformer/cache"
 os.environ["WANDB_CONFIG_DIR"] = "/scratch/project_465001027/Spatialformer/cache"

@@ -49,7 +49,8 @@ Spatial transcriptomics quantifies gene expression within its spatial context, m
 For the instructions of SpatialFormer, please refer to our jupyter notebook (some in the .py files) [tutorials](downstream/) on:
 
 The zero-shot tutorials 
-- ***Dataset Integration***[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1WEMwfmgkFC6ZG7g5GK0JyJieg6hIGAwa?usp=sharing)
+
+***Dataset Integration***[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1WEMwfmgkFC6ZG7g5GK0JyJieg6hIGAwa?usp=sharing)
 
 ***Gene-gene co-occurrence and perturbation discovery***
 - Attention analysis[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1EeOV-MeuFo1cksOCqs4GvBoPSYS1736j?usp=sharing)

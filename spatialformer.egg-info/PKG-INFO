@@ -46,6 +46,10 @@ Dynamic: summary
 
 ---
 
+<p align="center">
+  <img src="./images/spatialformer_logo.png" alt="Logo" width="200"/>
+</p>
+
 This is the official SpatialFormer codebase. SpatialFormer is the first single-cell spatial foundation model that learns universal representations of subcellular molecular and cellular spatial proximity through multi-task learning.
 
 [![License](https://img.shields.io/badge/license-MIT-blue)](https://github.com/username/repo/blob/main/LICENSE)
@@ -72,8 +76,8 @@ Spatial transcriptomics quantifies gene expression within its spatial context, m
 - Added a new **edge-based dataloader**; [anchor with preselected index](https://huggingface.co/datasets/TerminatorJ/pairs_dataset) with:
   - distance-aware sampling
   - hard negative pairs
-  - easy negative pairs [cache-pairs]()
-  - faiss-based nearest neighbors search [cache-faiss]()
+  - easy negative pairs cache-pairs
+  - faiss-based nearest neighbors search cache-faiss
   - index-based storage for p/n pairs, which save large amount of memory usage
 - Upgraded to **GraphSAGE v2**, supporting 6,036 spatial embeddings
 - Integrated **FlashAttention v2** for efficient long-sequence processing
@@ -91,8 +95,8 @@ Spatial transcriptomics quantifies gene expression within its spatial context, m
 For the instructions of SpatialFormer, please refer to our jupyter notebook (some in the .py files) [tutorials](downstream/) on:
 
 The zero-shot tutorials 
-- [Dataset Integration](downstream/zero-shot_batch_correction/zero_shot_batch_integration.ipynb)
-- [Gene-gene colocalization perturbation discovery](downstream/cell_cell_communication/perturbation_analysis.py)
+- ***Dataset Integration***[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1WEMwfmgkFC6ZG7g5GK0JyJieg6hIGAwa?usp=sharing)
+- ***Gene-gene colocalization perturbation discovery***(downstream/cell_cell_communication/perturbation_analysis.py)
 - [Gene-gene colocalization attention analysis](downstream/cell_cell_communication/1.Tutorial_attention_analysis.ipynb)
 - [Gene-gene colocalization perturbation analysis 1](downstream/cell_cell_communication/2.Tutorial_perturbation_analysis.ipynb)
 - [Gene-gene colocalization perturbation analysis 2](downstream/cell_cell_communication/3.Tutorial_CCC_analysis_VUILD96MF.ipynb)
@@ -103,8 +107,8 @@ The zero-shot tutorials
 
 The fine-tuning tutorials
 - [Cell type/niches annotation](downstream/cell_types_nich_annotation/Tutorial_cell_type_annotation.ipynb)
-- [Cell-cell colocalization prediction fine-tune for other platform](downstream/cell_cell_communication/cell_cell_communication_zero_shot_multi_platform.py)
-
+- [Cell-cell colocalization prediction fine-tune for other platform1](downstream/cell_cell_communication/cell_cell_communication_zero_shot_multi_platform.py)
+- [Cell-cell colocalization prediction fine-tune for other platform2](#fine-tune-the-model)
 
 
 ## System Requirements
@@ -114,7 +118,7 @@ We provide the GPU and CPU version for users with different device levels. Howev
 #### OS requirements
 This package is supported for macOS and Linux. The package has been tested on the following systems:
 - macOS: Sequoia (15.3.1)
-- Linux: Ubuntu 16.04; SLES 15.5
+- Linux: Ubuntu 16.04; SUSE 15.6
 
 #### Python environment requirements
 Create the spatialformer environment by anaconda (python >= 3.10 required)
@@ -142,6 +146,7 @@ pip install torch==2.3.1 torchvision==0.18.1 torchaudio==2.3.1 --index-url https
 
 #### macOS
 ```bash
+conda install -c conda-forge numba llvmlite
 pip install torch torchvision torchaudio
 ```
 Note: On Mac, only CPUs are currently supported.
@@ -274,8 +279,8 @@ We support diversed input format for extracting the cell embeddings. The input c
 
 For the easiest implementation, ".h5ad" file can easily input and get the embedding out following the codes as below:
 
-We also provide [Google Colab](https://colab.research.google.com/drive/130ooVmvoQU1QahT9_Ljz273BdlC8n2Pk?usp=sharing) for practical purpose.
-
+We also provide Google Colab for practical purposes (stable and strongly recommended).
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/130ooVmvoQU1QahT9_Ljz273BdlC8n2Pk?usp=sharing)
 
 #### Loading the anndata
 A simple example anndata can be downloaded [here](downstream/cell_cell_communication/data/covid_subsampled.h5ad)
@@ -341,7 +346,7 @@ embed_adata = sp.tl.embed_data(
 | tissue | string | The type of tissue (e.g., Breast/Lung).|
 | condition | string | Metadata for the sample condition (e.g., Disease/Healthy). |
 | assay | string | The method of getting the data (e.g. Merfish, Xenium). |
-| method | Embedding extraction method. "cls": Use CLS token embedding as cell representation; "gene": Use the mean of gene token embeddings. |
+| method | string | Embedding extraction method. "cls": Use CLS token embedding as cell representation; "gene": Use the mean of gene token embeddings. |
 | mode | string | The method of the embed function, which can be either "single" or "pair." The single mode collates only individual cells as input for the model. In "pair" mode, data is prepared for pairwise input. If using "pair," both left_cell and right_cell must be provided. Each cell ID in left_cell corresponds to the cell ID at the same index in right_cell.  |
 | model_ckp_path | string | The path to the SpatialFormer model checkpoint.|
 | batch_size | integer | The batch size for the data loader.|
@@ -423,7 +428,8 @@ python ./script/train.py --config /scratch/project_465001820/Spatialformer/confi
 For each slide, the accurate prediction of the molecular features largely rely on the cell-cell colocalization. 
 We use LoRA to fine-tune the SpatialFormer model with one slide.
 
-We also provide [Google Colab](), which makes it easy to practice.
+We also provide Google Colab for practice purposes (stable and strongly recommended)
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/18RQhZeak47t3BzmLZ-St3NOmrQnCuwXk?usp=sharing)
 
 ```python
 python cell_cell_communication_zero_shot_multi_platform.py --radius 30 --fine_tune_mode lora --rank 64 --lora_alpha 128 --cell_by_gene_path /scratch/project_465001820/Spatialformer_main_practice/data/MERFISH_Lung/HumanLungCancerPatient1_cell_by_gene.csv --cell_meta_path /scratch/project_465001820/Spatialformer_main_practice/data/MERFISH_Lung/HumanLungCancerPatient1_cell_metadata.csv --sample_name MERFISH_Lung --zero_shot_cell_size 500 --tissue Lung --condition Disease --config_path /scratch/project_465001820/Spatialformer/spatialformer/config/_config_fine_tune_probe.json --batch_size 32 --max_cells 10000
@@ -432,7 +438,7 @@ python cell_cell_communication_zero_shot_multi_platform.py --radius 30 --fine_tu
 ### Reproducibility of the work
 
 All the codes for reproducing the results of the manuscript were presented in the ./downstream directory.
-For reproducing the MERFISH and Xenium colocalization prediction, [colocalization prediction](downstream/zero-shot_batch_correction/cell_cell_communication_zero_shot_multi_platform.py)
+
 
 
 ### Star Trend

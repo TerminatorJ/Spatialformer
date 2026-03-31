@@ -46,6 +46,7 @@ spatialformer/model/submodules/modules.py
 spatialformer/preprocess/__init__.py
 spatialformer/preprocess/find_gene_interaction.py
 spatialformer/spatial_embeddings/__init__.py
+spatialformer/spatial_embeddings/gene_embeddings_GraphSAGE_pandavid.pkl
 spatialformer/spatial_embeddings/xenium_5k_pandavid_gene_embeddings.pkl
 spatialformer/tokenizer/__init__.py
 spatialformer/tokenizer/token.json

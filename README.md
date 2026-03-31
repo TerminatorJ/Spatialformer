@@ -30,8 +30,8 @@ Spatial transcriptomics quantifies gene expression within its spatial context, m
 - Added a new **edge-based dataloader**; [anchor with preselected index](https://huggingface.co/datasets/TerminatorJ/pairs_dataset) with:
   - distance-aware sampling
   - hard negative pairs
-  - easy negative pairs [cache-pairs]()
-  - faiss-based nearest neighbors search [cache-faiss]()
+  - easy negative pairs cache-pairs
+  - faiss-based nearest neighbors search cache-faiss
   - index-based storage for p/n pairs, which save large amount of memory usage
 - Upgraded to **GraphSAGE v2**, supporting 6,036 spatial embeddings
 - Integrated **FlashAttention v2** for efficient long-sequence processing
@@ -49,8 +49,8 @@ Spatial transcriptomics quantifies gene expression within its spatial context, m
 For the instructions of SpatialFormer, please refer to our jupyter notebook (some in the .py files) [tutorials](downstream/) on:
 
 The zero-shot tutorials 
-- [Dataset Integration](downstream/zero-shot_batch_correction/zero_shot_batch_integration.ipynb)
-- [Gene-gene colocalization perturbation discovery](downstream/cell_cell_communication/perturbation_analysis.py)
+- ***Dataset Integration***[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1WEMwfmgkFC6ZG7g5GK0JyJieg6hIGAwa?usp=sharing)
+- ***Gene-gene colocalization perturbation discovery***(downstream/cell_cell_communication/perturbation_analysis.py)
 - [Gene-gene colocalization attention analysis](downstream/cell_cell_communication/1.Tutorial_attention_analysis.ipynb)
 - [Gene-gene colocalization perturbation analysis 1](downstream/cell_cell_communication/2.Tutorial_perturbation_analysis.ipynb)
 - [Gene-gene colocalization perturbation analysis 2](downstream/cell_cell_communication/3.Tutorial_CCC_analysis_VUILD96MF.ipynb)

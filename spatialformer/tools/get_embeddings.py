@@ -403,6 +403,7 @@ def embed_data(
 
     model = manual_train_fm(config = config, use_flash_attn = use_flash_attn)
 
+
     if gene_median_path == None:
         gene_median_path = os.path.join(pkg_root, "data/gene_median.pkl")
         logger.info("Loading the gene median values...")
@@ -428,7 +429,6 @@ def embed_data(
         # Move model to appropriate device
         logger.info(f"Model mapped to device: {device}")
         model.to(device)
-        model = model.half()
 
 
     # -------------------------------------------------------------------------

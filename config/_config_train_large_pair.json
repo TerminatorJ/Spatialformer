@@ -42,5 +42,5 @@
     "condition": true,
     "spatial_embedding": true,
     "spatial_embedding_freeze": false,
-    "embedding_path": "/scratch/project_465001027/Spatialformer/spatial_embeddings/gene_embeddings_GraphSAGE_pandavid.pkl"
+    "embedding_path": "spatial_embeddings/gene_embeddings_GraphSAGE_pandavid.pkl"
 }

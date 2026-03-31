@@ -8,8 +8,7 @@ import numpy as np
 import h5py
 import os
 import sys
-sys.path.append("/scratch/project_465001027/Spatialformer/utils")
-from utils import *
+from utils.utils import *
 import pickle
 from torch.utils.data import Dataset, DataLoader, ConcatDataset
 import torch

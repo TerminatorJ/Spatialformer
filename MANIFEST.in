@@ -3,3 +3,5 @@ include spatialformer/config/*.json
 include spatialformer/tokenizer/*.json
 
 include spatialformer/spatial_embeddings/*.json
+
+include requirements.txt

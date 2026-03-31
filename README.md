@@ -52,9 +52,8 @@ The zero-shot tutorials
 - ***Dataset Integration***[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1WEMwfmgkFC6ZG7g5GK0JyJieg6hIGAwa?usp=sharing)
 - ***Gene-gene co-occurrence and perturbation discovery***
 - Attention analysis[![Open In Colab](https://colab.research.google.com/drive/1EeOV-MeuFo1cksOCqs4GvBoPSYS1736j?usp=sharing)
-- perturbation analysis (downstream/cell_cell_communication/2.Tutorial_perturbation_analysis.ipynb)[![Open In Colab](https://colab.research.google.com/drive/1EeOV-MeuFo1cksOCqs4GvBoPSYS1736j?usp=sharing)
-- [Gene-gene colocalization perturbation analysis 2](downstream/cell_cell_communication/3.Tutorial_CCC_analysis_VUILD96MF.ipynb)
-- [Gene-gene colocalization perturbation analysis 3](downstream/cell_cell_communication/4.Tutorial_CCC_analysis_breast.ipynb)
+- perturbation analysis[![Open In Colab](https://colab.research.google.com/drive/1Fjv9BPuDYiPiDSOE_18yW1Zsq1cTAmUE?usp=sharing)
+- visualization of the perturbation analysis results (downstream/cell_cell_communication/3.Tutorial_CCC_analysis_VUILD96MF.ipynb)
 - [Cell-cell colocalization analysis](downstream/cell_cell_communication/cell_cell_communication_zero_shot_cross_slide.ipynb)
 - [Cell-cell colocalization prediction](downstream/cell_cell_communication/cell_cell_communication_zero_shot_multi_platform.py)
 

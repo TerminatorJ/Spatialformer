@@ -46,16 +46,24 @@ Spatial transcriptomics quantifies gene expression within its spatial context, m
 
 ## Tutorials
 
-For the instructions of SpatialFormer, please refer to our jupyter notebook (some in the .py files) [tutorials](downstream/) on:
+For detailed instructions on using SpatialFormer, please refer to our Jupyter notebook tutorials
+(some provided as `.py` files) in the [`downstream/`](downstream/) directory.
 
-The zero-shot tutorials 
+---
 
-***Dataset Integration***[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1WEMwfmgkFC6ZG7g5GK0JyJieg6hIGAwa?usp=sharing)
+### Zero-Shot Tutorials
 
-***Gene-gene co-occurrence and perturbation discovery***
-- Attention analysis[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1EeOV-MeuFo1cksOCqs4GvBoPSYS1736j?usp=sharing)
-- Perturbation analysis[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1Fjv9BPuDYiPiDSOE_18yW1Zsq1cTAmUE?usp=sharing)
-- visualisation of the perturbation analysis results[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/16KESZwp0x4fWVedeKmUBxq0sda4MynTk?usp=sharing)
+| Tutorial                | Colab                                                                                                                                                               |
+| -------------------------| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **Dataset Integration** | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1WEMwfmgkFC6ZG7g5GK0JyJieg6hIGAwa?usp=sharing) |
+
+### Gene–Gene Co-occurrence & Perturbation Discovery
+
+| Tutorial | Colab |
+|---|---|
+| **Attention Analysis** | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1EeOV-MeuFo1cksOCqs4GvBoPSYS1736j?usp=sharing) |
+| **Perturbation Analysis** | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1Fjv9BPuDYiPiDSOE_18yW1Zsq1cTAmUE?usp=sharing) |
+| **Visualisation of Perturbation Results** | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/16KESZwp0x4fWVedeKmUBxq0sda4MynTk?usp=sharing) |
 
 
 

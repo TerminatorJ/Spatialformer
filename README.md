@@ -110,9 +110,13 @@ pip install torch==2.3.1 torchvision==0.18.1 torchaudio==2.3.1 --index-url https
 ```bash
 conda install -c conda-forge numba llvmlite
 pip install torch torchvision torchaudio
+pip install "numpy<2" #numpy should match the pytorch version
 ```
 Note: On Mac, only CPUs are currently supported.
-
+if you encounter the OMP Error, please try to set 
+```bash
+export KMP_DUPLICATE_LIB_OK=TRUE
+```
 ---
 ### Step 2: Install spatialformer
 Make sure cmake already installed, otherwise

@@ -5,6 +5,7 @@
 </p>
 
 This is the official SpatialFormer codebase. SpatialFormer is the first single-cell spatial foundation model that learns universal representations of subcellular molecular and cellular spatial proximity through multi-task learning.
+
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.20476938.svg)](https://doi.org/10.5281/zenodo.20476938)
 [![License](https://img.shields.io/badge/license-MIT-blue)](https://github.com/username/repo/blob/main/LICENSE)
 ![PyPI - Downloads](https://img.shields.io/pypi/dm/spatialformer)

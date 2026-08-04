@@ -414,6 +414,5 @@ All the codes for reproducing the results of the manuscript were presented in th
 
 
 ## Cite our work
-Wang J, Huang Y, Winther O. SpatialFormer: Universal Spatial Representation Learning from Subcellular Molecular to Multicellular Landscapes[J]. bioRxiv, 2025: 2025.01. 18.633701.
-
+Wang, J., Huang, Y. & Winther, O. SpatialFormer: universal spatial representation learning from subcellular molecular to multicellular landscapes. Nat Comput Sci (2026).
 

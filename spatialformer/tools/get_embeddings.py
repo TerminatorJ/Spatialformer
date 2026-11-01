@@ -283,7 +283,7 @@ def embed_data(
     tissue: str = "Lung", 
     condition: str = "Disease",
     assay: str = "Xenium",
-    method: str = "CLS",
+    method: str = "cls",
     model_ckp_path: str = None, 
     batch_size: int = 4,
     config_path: str = get_file_path("config", "_config_train_large_pair.json"),
@@ -444,9 +444,11 @@ def embed_data(
             token_path=token_path,
             tissue=tissue,
             condition=condition,
+            assay=assay,
             method=method,
             batch_size=batch_size,
             num_workers=num_workers,
+            only_loader=only_loader,
             threshold=threshold,
             reveal_name_flag=reveal_name,
             gene_median_path=gene_median_path,
@@ -461,6 +463,7 @@ def embed_data(
             token_path=token_path,
             tissue=tissue,
             condition=condition,
+            assay=assay,
             batch_size=batch_size,
             num_workers=num_workers,
             left_cell=left_cell,
@@ -484,6 +487,7 @@ def _process_single_mode(
     method: str,
     batch_size: int,
     num_workers: int,
+    only_loader: bool,
     threshold: float,
     reveal_name_flag: bool,
     gene_median_path: str,
@@ -505,15 +509,19 @@ def _process_single_mode(
         gene_median_path=gene_median_path
     )
     dataset = GeneExpressionDataset(adata, tokenizer, max_len)
-    dataloader = DataLoader(
-        dataset, 
-        batch_size=batch_size, 
-        num_workers=num_workers, 
-        collate_fn=collate_fn,
-        prefetch_factor=3,
-        pin_memory=True,
-        persistent_workers=num_workers
-    )
+    dataloader_kwargs = {
+        "batch_size": batch_size,
+        "num_workers": num_workers,
+        "collate_fn": collate_fn,
+        "pin_memory": True,
+    }
+    if num_workers > 0:
+        dataloader_kwargs["prefetch_factor"] = 3
+        dataloader_kwargs["persistent_workers"] = True
+    dataloader = DataLoader(dataset, **dataloader_kwargs)
+
+    if only_loader:
+        return dataloader
     
     # Storage for results
     all_embeddings = []
@@ -629,15 +637,16 @@ def _process_pair_mode(
     dataset = GeneExpressionPairDataset(
         adata, left_cell, right_cell, pair_label, tokenizer, max_len
     )
-    dataloader = DataLoader(
-        dataset, 
-        batch_size=batch_size, 
-        collate_fn=collate_fn, 
-        num_workers=num_workers, 
-        pin_memory=True, 
-        prefetch_factor=3, 
-        persistent_workers=True
-    )
+    dataloader_kwargs = {
+        "batch_size": batch_size,
+        "collate_fn": collate_fn,
+        "num_workers": num_workers,
+        "pin_memory": True,
+    }
+    if num_workers > 0:
+        dataloader_kwargs["prefetch_factor"] = 3
+        dataloader_kwargs["persistent_workers"] = True
+    dataloader = DataLoader(dataset, **dataloader_kwargs)
     # dataloader = DataLoader(
     #     dataset, 
     #     batch_size=batch_size, 
